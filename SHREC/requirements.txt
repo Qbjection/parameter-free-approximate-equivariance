@@ -1,0 +1,18 @@
+clu
+jax[cuda12] >= 0.4.32
+tensorflow
+tensorflow-datasets
+chex==0.1.85
+optax
+matplotlib
+scikit-learn
+icecream
+flax
+wandb
+einops
+tqdm
+plyfile 
+pillow
+docopt
+potpourri3d
+trimesh

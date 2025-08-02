@@ -29,21 +29,22 @@ pip install -r requirements.txt
 
 2. To run the $C_4, D_1, D_4$ experiments, run the following commands (respectively)
 ```
-python3 lightning_train_and_eval.py --group=C4xC4 --model=GxGregularfunctor --dataset=ddmnist_c4 --lambda_t=2 --lr=0.001
+python3 lightning_train_and_eval.py --group=C4xC4 --model=GxGregularfunctor --dataset=ddmnist_c4 --lambda_t=2 --lr=0.001 --fast
 
-python3 lightning_train_and_eval.py --group=D1xD1 --model=GxGregularfunctor --dataset=ddmnist_d1 --lambda_t=1 --lr=0.001
+python3 lightning_train_and_eval.py --group=D1xD1 --model=GxGregularfunctor --dataset=ddmnist_d1 --lambda_t=1 --lr=0.001 --fast
 
-python3 lightning_train_and_eval.py --group=D4xD4 --model=GxGregularfunctor --dataset=ddmnist_d4 --lambda_t=1 --lr=0.0005
+python3 lightning_train_and_eval.py --group=D4xD4 --model=GxGregularfunctor --dataset=ddmnist_d4 --lambda_t=1 --lr=0.0005 --fast
 ```
 Optionally, you can set `--seed=d` with d $\in\{0,1,2,3,4\}$ for reproducibility.
+Add `--fast` for faster training with reduced logging overhead.
 
 Simlarly, to run the experiments for the baseline CNN, run the following commands
 ```
-python3 lightning_train_and_eval.py --group=C4xC4 --model=GxGregularfunctor --dataset=ddmnist_c4 --lambda_t=0 --lr=0.0005
+python3 lightning_train_and_eval.py --group=C4xC4 --model=GxGregularfunctor --dataset=ddmnist_c4 --lambda_t=0 --lr=0.0005 --fast
 
-python3 lightning_train_and_eval.py --group=D1xD1 --model=GxGregularfunctor --dataset=ddmnist_d1 --lambda_t=0 --lr=0.001
+python3 lightning_train_and_eval.py --group=D1xD1 --model=GxGregularfunctor --dataset=ddmnist_d1 --lambda_t=0 --lr=0.001 --fast
 
-python3 lightning_train_and_eval.py --group=D4xD4 --model=GxGregularfunctor --dataset=ddmnist_d4 --lambda_t=0 --lr=0.0005
+python3 lightning_train_and_eval.py --group=D4xD4 --model=GxGregularfunctor --dataset=ddmnist_d4 --lambda_t=0 --lr=0.0005 --fast
 ``` 
 
 
@@ -84,3 +85,18 @@ pip install -r requirements.txt
 python3 run_model.py --dataset=PhiFlow --relaxed_symmetry=Rotation --hidden_dim=92 --num_layers=5 --out_length=6 --alpha=1e-5 --batch_size=16 --learning_rate=0.001 --decay_rate=0.95 --latent_action=grid --get_latents --model=CNN --lambda_t=0.005
 ```
 Simlarly, to run the experiments for the baseline CNN, run the same command with `--lambda_t=0`
+
+### SHREC 11 experiments
+1. Navigate to the directory and install the requirements
+```
+cd SHREC
+pip install -r requirements.txt
+```
+
+2. Download and preprocess the data following the instructions at https://github.com/vsitzmann/neural-isometries/tree/main <br> The following command assumes that the preprocessed data is in data/SHREC_11/processed
+
+
+3. Create the directories ./cshrec11_encode/weights and ./cshrec11_pred/weights/ Run the following command
+```
+python3 experiments/cshrec11_encode/train.py --in "data/SHREC_11/processed/" --out "./cshrec11_encode/weights/" --linear && python3 experiments/cshrec11_pred/train.py --in "data/SHREC_11/processed/" --weights "./cshrec11_encode/weights/linear/0/checkpoints-0/" --out "./cshrec11_pred/weights/" --linear --projection=matrix
+```

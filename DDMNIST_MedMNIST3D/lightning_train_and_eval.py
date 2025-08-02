@@ -1,8 +1,9 @@
 import os
 import pytorch_lightning as pl
 import argparse
+import time
 from medmnist import INFO
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, Timer, Callback
 from pytorch_lightning.loggers import TensorBoardLogger
 from datasets.MedMNIST2D_dataset import MedMNISTDataModule
 from datasets.CnMedMNIST2D_dataset import CnMedMNISTDataModule
@@ -22,6 +23,41 @@ from models.GxGRegularFunctorModel import GxGRegularFunctor
 from models.MedMNISTGRegularFunctorModel import MedMNISTGxGRegularFunctor
 import torch
 
+class EpochTimerCallback(Callback):
+    def __init__(self, fast_mode=False):
+        super().__init__()
+        self.epoch_start_time = None
+        self.epoch_times = []
+        self.fast_mode = fast_mode
+    
+    def on_train_epoch_start(self, trainer, pl_module):
+        self.epoch_start_time = time.time()
+    
+    def on_train_epoch_end(self, trainer, pl_module):
+        if self.epoch_start_time is not None:
+            epoch_time = time.time() - self.epoch_start_time
+            self.epoch_times.append(epoch_time)
+            
+            # Monitor GPU memory usage and print to console
+            if torch.cuda.is_available():
+                gpu_memory = torch.cuda.memory_allocated() / 1024**3  # GB
+                print(f"Epoch {trainer.current_epoch}: {epoch_time:.2f}s, GPU Memory: {gpu_memory:.2f}GB")
+            else:
+                print(f"Epoch {trainer.current_epoch}: {epoch_time:.2f}s")
+            
+            # Clear GPU cache every 10 epochs to prevent memory fragmentation
+            if trainer.current_epoch % 10 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                print(f"  -> Cleared GPU cache at epoch {trainer.current_epoch}")
+            
+            # Log to TensorBoard based on mode
+            if not self.fast_mode and trainer.logger:
+                # Log every epoch in normal mode
+                trainer.logger.log_metrics({"epoch_time_seconds": epoch_time}, step=trainer.current_epoch)
+            elif self.fast_mode and trainer.current_epoch % 10 == 0 and trainer.logger:
+                # Log every 10 epochs in fast mode
+                trainer.logger.log_metrics({"epoch_time_seconds": epoch_time}, step=trainer.current_epoch)
+
 def get_dataset_from_args(args):
     if args.dataset == 'pairedcn':
         return CnMedMNISTDataModule(args.data_flag, args.batch_size, args.resize, args.as_rgb, args.size, args.download, args.x2_angle, args.fixed_covariate)
@@ -34,15 +70,24 @@ def get_dataset_from_args(args):
     if args.dataset == 'd8':
         return D8MedMNISTDataModule(args.data_flag, args.batch_size, args.resize, args.as_rgb, args.size, args.download)
     if args.dataset == 'ddmnist_c4':
-        return C4xC4DDMNISTDataModule(256)
+        dm = C4xC4DDMNISTDataModule(args.batch_size)
+        dm.num_workers = args.num_workers
+        dm.pin_memory = getattr(args, 'pin_memory', False)
+        return dm
     if args.dataset == 'ddmnist_d4':
-        return D4xD4DDMNISTDataModule(256)
+        dm = D4xD4DDMNISTDataModule(args.batch_size)
+        dm.num_workers = args.num_workers
+        dm.pin_memory = getattr(args, 'pin_memory', False)
+        return dm
     if args.dataset == 'ddmnist_d1':
-        return D1xD1DDMNISTDataModule(256)
+        dm = D1xD1DDMNISTDataModule(args.batch_size)
+        dm.num_workers = args.num_workers
+        dm.pin_memory = getattr(args, 'pin_memory', False)
+        return dm
     if args.dataset == 'S4':
-        return S4MedMNISTDataModule(args.data_flag, 32, resize=False, as_rgb=False, size=28, download=True)
+        return S4MedMNISTDataModule(args.data_flag, args.batch_size, resize=False, as_rgb=False, size=28, download=True)
     if args.dataset == 'D1':
-        return D1MedMNISTDataModule(args.data_flag, 32, resize=False, as_rgb=False, size=28, download=True)
+        return D1MedMNISTDataModule(args.data_flag, args.batch_size, resize=False, as_rgb=False, size=28, download=True)
     raise NotImplementedError
 
 
@@ -112,11 +157,14 @@ def get_args():
 
     parser.add_argument('--num_epochs', type=int, default=150) 
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--num_workers', type=int, default=None, help='Number of dataloader workers (auto-detected if None)')
+    parser.add_argument('--pin_memory', action='store_true', help='Use pin_memory in DataLoaders for faster GPU transfer')
     
     parser.add_argument('--run', type=str, default='model1')
     parser.add_argument('--visible_gpus', type=str, default='0,1,2,3')
     parser.add_argument('--gpu_id', type=str, default='0')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--fast', action='store_true', help='Disable expensive logging for speed')
     return parser.parse_args()
 
 
@@ -124,6 +172,21 @@ if __name__ == "__main__":
     args = get_args()
 
     pl.seed_everything(args.seed, workers=True)
+
+    # Optimize DataLoader settings for speed
+    if args.num_workers is None:
+        # Auto-detect optimal number of workers
+        import os
+        cpu_count = os.cpu_count()
+        args.num_workers = min(cpu_count, 8) if args.fast else min(cpu_count // 2, 6)
+    
+    # Enable optimizations for faster data loading
+    if args.fast:
+        torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
+        args.pin_memory = True  # Force pin_memory in fast mode
+        
+    print(f"Using {args.num_workers} dataloader workers")
+    print(f"Pin memory: {args.pin_memory}")
 
     if args.gpu_id != '0':
         os.environ["CUDA_VISIBLE_DEVICES"] = args.visible_gpus
@@ -155,6 +218,63 @@ if __name__ == "__main__":
 
     ###################################### data_module #####################################
     data_module = get_dataset_from_args(args)
+    
+    # Apply DataLoader optimizations
+    if hasattr(data_module, 'num_workers'):
+        data_module.num_workers = args.num_workers
+    if hasattr(data_module, 'pin_memory'):
+        data_module.pin_memory = getattr(args, 'pin_memory', False)
+    
+    # Monkey patch DataLoader methods to use optimized settings
+    if args.fast:
+        original_train_dataloader = data_module.train_dataloader
+        original_val_dataloader = data_module.val_dataloader
+        original_test_dataloader = data_module.test_dataloader
+        
+        def optimized_train_dataloader():
+            loader = original_train_dataloader()
+            # Create new optimized DataLoader
+            from torch.utils.data import DataLoader
+            return DataLoader(
+                loader.dataset,
+                batch_size=loader.batch_size,
+                shuffle=True,
+                num_workers=args.num_workers,
+                pin_memory=getattr(args, 'pin_memory', False),
+                persistent_workers=True,  # Keep workers alive between epochs
+                prefetch_factor=2  # Prefetch batches for speed
+            )
+        
+        def optimized_val_dataloader():
+            loader = original_val_dataloader()
+            from torch.utils.data import DataLoader
+            return DataLoader(
+                loader.dataset,
+                batch_size=loader.batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                pin_memory=getattr(args, 'pin_memory', False),
+                persistent_workers=True,
+                prefetch_factor=2
+            )
+        
+        def optimized_test_dataloader():
+            loader = original_test_dataloader()
+            from torch.utils.data import DataLoader
+            return DataLoader(
+                loader.dataset,
+                batch_size=loader.batch_size,
+                shuffle=False,
+                num_workers=args.num_workers,
+                pin_memory=getattr(args, 'pin_memory', False),
+                persistent_workers=True,
+                prefetch_factor=2
+            )
+        
+        data_module.train_dataloader = optimized_train_dataloader
+        data_module.val_dataloader = optimized_val_dataloader
+        data_module.test_dataloader = optimized_test_dataloader
+    
     if args.dataset == 'pairedcn':
         assert 360 % args.x2_angle == 0, "x2_angle must be a divisor of 360"
         args.modularity_exponent = int(360 / int(args.x2_angle))
@@ -177,6 +297,12 @@ if __name__ == "__main__":
         save_weights_only=True
     )
 
+    # Timer callback to measure training time per epoch
+    timer_callback = Timer(duration=None, interval="epoch")
+    
+    # Custom epoch timer callback for detailed per-epoch timing
+    epoch_timer_callback = EpochTimerCallback(fast_mode=args.fast)
+
     
     ###################################### trainer #####################################
     #try:
@@ -185,9 +311,11 @@ if __name__ == "__main__":
         accelerator='gpu' if torch.cuda.is_available() else 'cpu',
         devices=[int(args.gpu_id)],
         default_root_dir=log_dir,
-        callbacks=[early_stop_callback, checkpoint_callback],
+        callbacks=[early_stop_callback, checkpoint_callback, timer_callback, epoch_timer_callback],
         logger=logger,
-        log_every_n_steps=31
+        log_every_n_steps=200 if args.fast else 31,
+        enable_progress_bar=not args.fast,
+        enable_model_summary=not args.fast
     )
     trainer.fit(model, data_module)
 

@@ -2,7 +2,7 @@
 Train.
 
 Usage:
-  train [options] [--linear]
+  train [options] [--linear] [--augmentation=<aug>]
   train (-h | --help)
   train --version
 
@@ -13,6 +13,7 @@ Options:
   -o, --out=<output_dir>  Output directory [default: {root_path}/experiments/cshrec11_encode/weights/].
   -c, --config=<config>   Config directory [default: config].
   --linear                Use linear latent transformation (matrix W) instead of kernel (default: False).
+  --augmentation=<aug>    Augmentation group for linear mode: 'd4' or 'oh' [default: d4].
 """
 
 import os
@@ -49,7 +50,7 @@ sys.path.append( ROOT_PATH )
 from nn import losses, conv, fmaps
 from utils import utils
 from utils.color import rwb_map, rwb_thick_map
-from utils.augmentations import d4_shrec_augment, random_d4_indices
+from utils.augmentations import d4_shrec_augment, random_d4_indices, oh_shrec_augment, random_oh_indices
 from data import data_loader as dl
 from data import input_pipeline, xforms
 from utils import ioutils as io
@@ -206,39 +207,52 @@ class EvalMetrics(metrics.Collection):
 def d4_augment_no_grad(inputs, indices):
   return jax.lax.stop_gradient(d4_shrec_augment(inputs, indices))
 
+@jax.jit
+def oh_augment_no_grad(inputs, indices):
+  return jax.lax.stop_gradient(oh_shrec_augment(inputs, indices))
+
 
 def train_step(x: Any, encoder: nn.Module, decoder: nn.Module, kernel: Any, state: TrainState,
-               optimizer: Any, alpha_equiv: float, beta_mult: float, train: bool = True, linear: bool = False):
+               optimizer: Any, alpha_equiv: float, beta_mult: float, train: bool = True, 
+               linear: bool = False, augmentation: str = 'd4'):
   
   key    = state.key 
   step   = state.step+1
   
-  # Generate D4 indices outside loss_fn to avoid key scope issues in linear mode
+  # Generate augmentation indices outside loss_fn to avoid key scope issues in linear mode
   if linear:
     # Determine batch size from input shape - x has shape (batch_size * 2, H, W, C)
     # After reshaping, x0 and Tx0 will have shape (batch_size, H, W, C)
     batch_pairs = x.shape[0] // 2  # This gives us the actual batch size
-    key, d4_key = jax.random.split(key)
-    d4_indices = random_d4_indices(d4_key, batch_pairs)
+    key, aug_key = jax.random.split(key)
+    
+    # Choose augmentation method based on parameter
+    if augmentation == 'oh':
+      aug_indices = random_oh_indices(aug_key, batch_pairs)
+      augment_fn = oh_augment_no_grad
+    else:  # Default to D4
+      aug_indices = random_d4_indices(aug_key, batch_pairs)
+      augment_fn = d4_augment_no_grad
   else:
-    d4_indices = None
+    aug_indices = None
+    augment_fn = None
   
   def loss_fn(params):
     if linear:      
-      # LINEAR MODE: D4 augmentation with equivariance learning (EFFICIENT VERSION)
+      # LINEAR MODE: Augmentation with equivariance learning (EFFICIENT VERSION)
       # Extract original and transformed images from x
       x_pairs = jnp.reshape(x, (-1, 2, x.shape[1], x.shape[2], x.shape[3]))
       x0 = x_pairs[:, 0]  # Original images
       Tx = x_pairs[:, 1]  # Transformed images
       batch_size = x0.shape[0]
-      double_indices = jnp.tile(d4_indices, 2)  # Repeat indices for both x0 and Tx
+      double_indices = jnp.tile(aug_indices, 2)  # Repeat indices for both x0 and Tx
       
-      # EFFICIENT: Apply D4 augmentations in batched mode
+      # EFFICIENT: Apply augmentations in batched mode
       # Stack inputs and indices for single augmentation call
       aug_inputs = jnp.concatenate([x0, Tx], axis=0)  # Shape: (batch_size * 2, H, W, C)
       
-      # Single D4 augmentation call for both x0 and Tx
-      aug_outputs = d4_augment_no_grad(aug_inputs, double_indices)
+      # Single augmentation call for both x0 and Tx using chosen method
+      aug_outputs = augment_fn(aug_inputs, double_indices)
       
       # Split augmentation results
       a = aug_outputs[:batch_size, ...]   # From x0
@@ -270,7 +284,7 @@ def train_step(x: Any, encoder: nn.Module, decoder: nn.Module, kernel: Any, stat
       latent_aug_inputs = jnp.concatenate([z0_encoded, Tz0_encoded], axis=0)  # Shape: (batch_size * 2, zH, zW, latent_dim)
       
       # Single D4 augmentation call for both z0 and Tz0
-      latent_aug_outputs = d4_augment_no_grad(latent_aug_inputs, double_indices)
+      latent_aug_outputs = augment_fn(latent_aug_inputs, double_indices)
 
       # Split latent augmentation results
       z0_aug_encoded = latent_aug_outputs[:batch_size, ...]   # From z0_encoded
@@ -314,6 +328,8 @@ def train_step(x: Any, encoder: nn.Module, decoder: nn.Module, kernel: Any, stat
       equiv_outputs = jnp.stack([za, Tza])  # Shape: (2, batch_size, num_latents, latent_dim)
       equiv_l1_losses = jnp.mean(jnp.abs(equiv_targets - equiv_outputs), axis=(2, 3))  # Shape: (2, batch_size)
       loss_equiv = jnp.sum(equiv_l1_losses)  # Sum over both loss types and batch
+      # equiv_l2_losses = jnp.mean((equiv_targets - equiv_outputs)**2, axis=(2, 3))  # Shape: (2, batch_size)
+      # loss_equiv = jnp.sum(equiv_l2_losses)  # Sum over both loss types and batch
 
 
       recon_equiv_targets = jnp.stack([a, Ta])
@@ -668,7 +684,7 @@ def viz_results( cfg, z, batch, x_out, tauOmega, Omega, mode="train", std_factor
   return wandb_ims 
 
  
-def train_and_evaluate( cfg: Any, input_dir: str, output_dir: str, linear: bool = False ):
+def train_and_evaluate( cfg: Any, input_dir: str, output_dir: str, linear: bool = False, augmentation: str = 'd4' ):
   tf.io.gfile.makedirs( output_dir )
   ic( output_dir )
   
@@ -779,7 +795,8 @@ def train_and_evaluate( cfg: Any, input_dir: str, output_dir: str, linear: bool 
                                              alpha_equiv  = alpha_equiv,
                                              beta_mult    = beta_mult,
                                              train        = True,
-                                             linear       = linear),
+                                             linear       = linear,
+                                             augmentation = augmentation),
                            axis_name=PMAP_AXIS )
     
   p_eval_step = jax.pmap( functools.partial(train_fn,
@@ -790,7 +807,8 @@ def train_and_evaluate( cfg: Any, input_dir: str, output_dir: str, linear: bool 
                                             alpha_equiv  = alpha_equiv,
                                             beta_mult    = beta_mult,
                                             train        = False,
-                                            linear       = linear),
+                                            linear       = linear,
+                                            augmentation = augmentation),
                           axis_name=PMAP_AXIS ) 
   # Visualize 
   train_metrics = None
@@ -921,6 +939,12 @@ def train_and_evaluate( cfg: Any, input_dir: str, output_dir: str, linear: bool 
 if __name__ == '__main__':
   arguments = docopt(__doc__, version='Train 1.0')
   linear = arguments['--linear']
+  augmentation = arguments['--augmentation'] or 'd4'  # Default to 'd4' if not provided
+  
+  # Validate augmentation argument (only needed for linear mode)
+  if linear and augmentation not in ['d4', 'oh']:
+    print(f"Error: Invalid augmentation '{augmentation}'. Must be 'd4' or 'oh'.")
+    sys.exit(1)
 
   # Set up experiment directory
   in_dir = arguments['--in']
@@ -931,7 +955,7 @@ if __name__ == '__main__':
 
   # if linear, add suffix to output directory
   if linear:
-    out_dir = f"{out_dir}linear"
+    out_dir = f"{out_dir}linear_{augmentation}"
 
   config = arguments['--config']
   path   = dirname( abspath(__file__) )
@@ -963,5 +987,11 @@ if __name__ == '__main__':
   os.mkdir( exp_dir )
   ic( exp_dir )
   
-  train_and_evaluate(cfg, in_dir, exp_dir, linear=linear)
+  # Print configuration info
+  if linear:
+    print( f"Mode: Linear with {augmentation.upper()} augmentations" )
+  else:
+    print( f"Mode: Kernel (augmentation parameter ignored)" )
+  
+  train_and_evaluate(cfg, in_dir, exp_dir, linear=linear, augmentation=augmentation)
 

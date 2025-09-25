@@ -13,9 +13,9 @@ pip install -r requirements.txt
 
 2. To run the TMNIST, MNIST and CIFAR10 experiments, run the following commands (respectively)
 ```
-python3 train.py --dataset=TMNIST --latent_dim=42 --run_id=2 --model=RegularizedFunctor --lambda_t=0.5 --lambda_W=1 --x2_transformation=font --W_exponent_algebra=2 
+python3 train.py --dataset=TMNIST --latent_dim=6 --run_id=2 --model=RegularizedFunctor --lambda_t=0.5 --lambda_W=1 --x2_transformation=font --W_exponent_algebra=2 
 
-python3 train.py --data=MNIST --dataset=MultiWMNIST --x2_angle=60 --latent_dim=30 --run_id=-1 --model=MultiWFunctorMNIST --lambda_t=0.5 --lambda_W=0.5
+python3 train.py --data=MNIST --dataset=MultiWMNIST --x2_angle=60 --latent_dim=18 --run_id=-1 --model=MultiWFunctorMNIST --lambda_t=0.5 --lambda_W=0.5
 
 python3 train.py --model=EncoderClassifierFunctor --lambda_t=0.5 --lambda_W=1.0 --latent_dim=64 --run_id=1000 --x2_angle=90 --dataset=ClassificationDataset --data=CIFAR
 ```
@@ -98,5 +98,5 @@ pip install -r requirements.txt
 
 3. Create the directories ./cshrec11_encode/weights and ./cshrec11_pred/weights/ Run the following command
 ```
-python3 experiments/cshrec11_encode/train.py --in "data/SHREC_11/processed/" --out "./cshrec11_encode/weights/" --linear && python3 experiments/cshrec11_pred/train.py --in "data/SHREC_11/processed/" --weights "./cshrec11_encode/weights/linear/0/checkpoints-0/" --out "./cshrec11_pred/weights/" --linear --projection=matrix
+python3 experiments/cshrec11_encode/train.py --in "data/SHREC_11/processed/" --out "./cshrec11_encode/weights/" --linear --augmentation "oh" && python3 experiments/cshrec11_pred/train.py --in "data/SHREC_11/processed/" --weights "./cshrec11_encode/weights/linear_oh/0/checkpoints-0/" --out "./cshrec11_pred/weights/" --linear --projection=matrix
 ```

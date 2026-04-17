@@ -202,11 +202,18 @@ def run(args):
     args.as_rgb = True if not args.not_rgb else False
     print("Using RGB: ", args.as_rgb)
 
+    # WARNING: A BIT HACKY BUT GXGFUNCTOR DOESN'T NEED THEM
+    if args.model == "GxGregularfunctor":
+        n_channels = None
+        n_classes = None
+        task = None
+
     if args.data_flag is not None:
         info = INFO[args.data_flag]
         task = info['task']
         n_channels = 3 if args.as_rgb else info['n_channels']
         n_classes = len(info['label'])
+    
 
     milestones = [int(0.5 * args.num_epochs), int(0.75 * args.num_epochs)]
     

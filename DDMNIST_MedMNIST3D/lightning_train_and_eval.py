@@ -365,6 +365,15 @@ if __name__ == "__main__":
         results = run(args)
         all_results.append(results)
 
+        # Reset state between runs so each seed behaves
+        # identically to a fresh process invocation
+        import gc
+        gc.collect()  # release Python refs to GPU tensors first
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+            torch.backends.cudnn.benchmark = False
+
     # Aggregate and print mean/std across seeds
     if len(seeds) > 1:
         print(f"\n{'='*60}")

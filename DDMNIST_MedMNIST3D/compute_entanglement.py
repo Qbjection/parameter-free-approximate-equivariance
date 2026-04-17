@@ -71,3 +71,14 @@ if __name__ == "__main__":
     latents, labels = extract_latents(model, dataloader, device)
     print(f"Extracted latents shape: {latents.shape}")
     print(f"Labels shape: {labels.shape}")
+
+    if args.dataset == 'ddmnist_c4':
+        # For C4xC4, the regular representation is 16-dim
+        rep_dims = 16
+        tensor_dims = int((latents.shape[1] // rep_dims) * rep_dims)
+        tensor_latents = latents[:, :tensor_dims]
+
+        # extracted part of the latent space that corresponds to operations with the regular representation
+        print(f"Tensor latents shape (should be divisible by {rep_dims}): {tensor_latents.shape}")
+
+        norm_tensor_latents = tensor_latents / torch.linalg.vector_norm(tensor_latents, dim=1, keepdim=True)

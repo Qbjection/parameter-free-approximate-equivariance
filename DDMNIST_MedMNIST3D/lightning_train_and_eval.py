@@ -91,7 +91,7 @@ def get_dataset_from_args(args):
     raise NotImplementedError
 
 
-def get_model_from_args(args):
+def get_model_from_args(args, milestones=None, log_dir=None, n_channels=None, n_classes=None, task=None):
     if args.model == 'vanilla':
         return MedMNISTModel(args.model_flag, n_channels, n_classes, task, args.data_flag, args.size, args.run,
                           milestones=milestones, output_root=log_dir)
@@ -287,7 +287,7 @@ def run(args):
         args.modularity_exponent = 2
 
     ###################################### model #####################################
-    model = get_model_from_args(args).to(device)
+    model = get_model_from_args(args, milestones=milestones, log_dir=log_dir, n_channels=n_channels, n_classes=n_classes, task=task).to(device)
     model.print_hyperparameters()
 
     ###################################### callbacks #####################################

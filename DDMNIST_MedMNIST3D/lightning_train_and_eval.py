@@ -163,13 +163,15 @@ def get_args():
     parser.add_argument('--run', type=str, default='model1')
     parser.add_argument('--visible_gpus', type=str, default='0,1,2,3')
     parser.add_argument('--gpu_id', type=str, default='0')
-    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--seed', type=int, nargs='+', default=[0])
     parser.add_argument('--fast', action='store_true', help='Disable expensive logging for speed')
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    args = get_args()
+def run(args):
+    """Run a single training + test cycle. Returns the list of test result dicts."""
+    import copy
+    args = copy.deepcopy(args)
 
     pl.seed_everything(args.seed, workers=True)
 
@@ -185,6 +187,9 @@ if __name__ == "__main__":
         torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
         args.pin_memory = True  # Force pin_memory in fast mode
         
+    print(f"\n{'='*60}")
+    print(f"Running with seed={args.seed}")
+    print(f"{'='*60}")
     print(f"Using {args.num_workers} dataloader workers")
     print(f"Pin memory: {args.pin_memory}")
 
@@ -326,14 +331,51 @@ if __name__ == "__main__":
     if args.dataset == 'ddmnist_c4':
         data_module_augmented_test = C4xC4DDMNISTDataModule(256, augment_test=True)
         data_module_augmented_test.setup(stage='test')
-        trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
+        results = trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
     elif args.dataset == 'ddmnist_d4':
         data_module_augmented_test = D4xD4DDMNISTDataModule(256, augment_test=True)
         data_module_augmented_test.setup(stage='test')
-        trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
+        results = trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
     elif args.dataset == 'ddmnist_d1':
         data_module_augmented_test = D1xD1DDMNISTDataModule(256, augment_test=True)
         data_module_augmented_test.setup(stage='test')
-        trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
+        results = trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
     else:
-        trainer.test(model, data_module)
+        results = trainer.test(model, data_module)
+
+    return results
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    args = get_args()
+    seeds = args.seed  # list of seeds
+
+    all_results = []
+    for seed in seeds:
+        args.seed = seed
+        results = run(args)
+        all_results.append(results)
+
+    # Aggregate and print mean/std across seeds
+    if len(seeds) > 1:
+        print(f"\n{'='*60}")
+        print(f"AGGREGATED RESULTS OVER {len(seeds)} SEEDS: {seeds}")
+        print(f"{'='*60}")
+
+        # results is a list (per seed) of lists (per dataloader) of dicts
+        num_dataloaders = len(all_results[0])
+        for dl_idx in range(num_dataloaders):
+            if num_dataloaders > 1:
+                print(f"\n--- Dataloader {dl_idx} ---")
+            metrics = {}
+            for seed_results in all_results:
+                for key, val in seed_results[dl_idx].items():
+                    metrics.setdefault(key, []).append(val)
+
+            for key, vals in sorted(metrics.items()):
+                vals = np.array(vals)
+                print(f"  {key}: {vals.mean():.4f} +/- {vals.std():.4f}")
+    else:
+        print("\nSingle seed run, no aggregation needed.")

@@ -139,7 +139,7 @@ class GxGRegularFunctor(pl.LightningModule):
         if self.lambda_t > 0:
             natural_loss1 = self.get_natural_loss(outputs1, labels1)
             natural_loss2 = self.get_natural_loss(outputs2, labels2)
-            natural_loss = 1*natural_loss1 + 0.*natural_loss2
+            natural_loss = 0.5*natural_loss1 + 0.5*natural_loss2
         else:
             natural_loss = self.get_natural_loss(outputs1, labels1)
             

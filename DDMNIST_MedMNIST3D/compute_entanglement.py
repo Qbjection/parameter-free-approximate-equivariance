@@ -40,7 +40,7 @@ def extract_latents(model, dataloader, device):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint_path', type=str, help='Path to the checkpoint file of the trained model, up to the version directory.')
+    parser.add_argument('--checkpoint_path', type=str, help='Path to the checkpoint file of the trained model, up to the version directory. End this with a slash.')
     parser.add_argument('--versions', type=int, nargs='+', default=[0], help='List of version numbers to compute entanglement for (e.g., 0 1 2).')
     parser.add_argument('--dataset', type=str, default='ddmnist_c4', choices=DATASET_TO_DATAMODULE.keys(),
                         help='Dataset to use for extracting latents.')

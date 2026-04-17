@@ -5,6 +5,7 @@ from datasets.C4xC4DDMNIST_dataset import C4xC4DDMNISTDataModule
 from datasets.D4xD4DDMNIST_dataset import D4xD4DDMNISTDataModule
 from datasets.D1xD1DDMNIST_dataset import D1xD1DDMNISTDataModule
 
+from utils.entanglement import Entanglement, get_average_entanglement, get_normalized_average_entanglement
 
 DATASET_TO_DATAMODULE = {
     'ddmnist_c4': C4xC4DDMNISTDataModule,
@@ -82,3 +83,12 @@ if __name__ == "__main__":
         print(f"Tensor latents shape (should be divisible by {rep_dims}): {tensor_latents.shape}")
 
         norm_tensor_latents = tensor_latents / torch.linalg.vector_norm(tensor_latents, dim=1, keepdim=True)
+
+
+        ent = Entanglement(norm_tensor_latents, tensor_latents.shape[1] // rep_dims, rep_dims)
+        avg_entanglement = ent.compute(normalize=True).get("entanglement_a").mean().item()
+
+        print(f"Average normalized entanglement of {args.split} vectors: {avg_entanglement:.4f}")
+
+        avg_entanglement_random_vectors = get_normalized_average_entanglement(num_samples=1000, dim_a=tensor_latents.shape[1] // rep_dims, dim_b=rep_dims)
+        print(f"Average normalized entanglement of random vectors: {avg_entanglement_random_vectors:.4f}")

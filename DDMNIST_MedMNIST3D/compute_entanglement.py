@@ -94,4 +94,5 @@ if __name__ == "__main__":
         print(f"Average normalized entanglement of {args.split} vectors: {avg_entanglement:.4f}")
 
         avg_entanglement_random_vectors = get_normalized_average_entanglement(num_samples=1000, dim_a=tensor_latents.shape[1] // rep_dims, dim_b=rep_dims)
-        print(f"Average normalized entanglement of random vectors: {avg_entanglement_random_vectors:.4f}")
+        avg_entropy = avg_entanglement_random_vectors.get("normalized_avg_entropy_A")
+        print(f"Average normalized entanglement of random vectors: {avg_entropy:.4f}")

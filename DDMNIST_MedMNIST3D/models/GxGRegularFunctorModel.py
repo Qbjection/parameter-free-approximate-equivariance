@@ -25,7 +25,7 @@ class GxGRegularFunctor(pl.LightningModule):
 
 
         # Select base model
-        if lambda_t >= 0: # TODO revert this to > 0 after debugging
+        if lambda_t > 0:
             get_latent = True
         else:
             get_latent = False
@@ -36,7 +36,7 @@ class GxGRegularFunctor(pl.LightningModule):
         # Initialise functor parameters
         self.lambda_c = lambda_c
         self.lambda_t = lambda_t
-        self.equivariant_layer_id = 12 #equivariant_layer_id #TODO revert
+        self.equivariant_layer_id = equivariant_layer_id
         
         self.group = group
         if group == 'C4xC4':
@@ -50,7 +50,7 @@ class GxGRegularFunctor(pl.LightningModule):
 
 
     def forward(self, x):
-        if self.lambda_t >= 0:
+        if self.lambda_t > 0:
             outputs, latent = self.model(x, self.equivariant_layer_id)
             return outputs, latent
         else:
@@ -128,7 +128,7 @@ class GxGRegularFunctor(pl.LightningModule):
         labels1 = y1
         labels2 = y2
         
-        if self.lambda_t >= 0:
+        if self.lambda_t > 0:
             outputs1, latent1 = self(x1)
             outputs2, latent2 = self(x2)
         else:

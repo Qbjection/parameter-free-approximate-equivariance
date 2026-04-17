@@ -73,8 +73,6 @@ if __name__ == "__main__":
 
     # Extract latents
     latents, labels = extract_latents(model, dataloader, device)
-    print(f"Extracted latents shape: {latents.shape}")
-    print(f"Labels shape: {labels.shape}")
 
     if args.dataset == 'ddmnist_c4':
         # For C4xC4, the regular representation is 16-dim

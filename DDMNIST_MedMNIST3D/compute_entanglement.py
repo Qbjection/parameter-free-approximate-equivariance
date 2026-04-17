@@ -24,9 +24,12 @@ def extract_latents(model, dataloader, device):
         for batch in dataloader:
             (x1, y1), (x2, y2), transformation_type, covariate = batch
             x1 = x1.to(device)
+            print("x1 shape:", x1.shape)  # Debug print to check input shape
 
             # Forward pass through the underlying DDMNIST CNN
             outputs, latents = model.model(x1)
+            print("Outputs shape:", outputs.shape)  # Debug print to check output shape
+            print("Number of latent tensors:", len(latents))  # Debug print to check number of latent tensors
             # latents is a list of tensors (one per tracked layer); concatenate them
             latent = torch.cat(latents, dim=-1)
 

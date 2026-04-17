@@ -27,7 +27,7 @@ def extract_latents(model, dataloader, device):
             print("x1 shape:", x1.shape)  # Debug print to check input shape
 
             # Forward pass through the underlying DDMNIST CNN
-            outputs, latents = model.model(x1)
+            outputs, latents = model.model(x1, [12])
             print("Outputs shape:", outputs.shape)  # Debug print to check output shape
             print("Number of latent tensors:", len(latents))  # Debug print to check number of latent tensors
             # latents is a list of tensors (one per tracked layer); concatenate them

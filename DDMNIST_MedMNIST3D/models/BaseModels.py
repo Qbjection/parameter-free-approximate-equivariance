@@ -301,10 +301,12 @@ class DDMNISTCNN(torch.nn.Module):
         latents = []
         for id, layer in enumerate(self.layers):
             x = layer(x)
+            print(f"After layer {id}, shape: {x.shape}")  # Debug print to check shape after each layer
             if id in latent_ids:
+                print(f"Extracting latent from layer {id} with shape {x.shape}")  # Debug print to check which layer's output is being extracted
                 latents.append(x.reshape(x.shape[0], -1))
 
-
+        print("latents list length in forward function:", len(latents))  # Debug print to check how many latents were extracted
         if self.get_latent:
             return x, latents
 

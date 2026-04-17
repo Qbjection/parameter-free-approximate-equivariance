@@ -40,7 +40,7 @@ def extract_latents(model, dataloader, device):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('checkpoint_path', type=str, help='Path to the checkpoint file of the trained model.')
+    parser.add_argument('--checkpoint_path', type=str, help='Path to the checkpoint file of the trained model.')
     parser.add_argument('--dataset', type=str, default='ddmnist_c4', choices=DATASET_TO_DATAMODULE.keys(),
                         help='Dataset to use for extracting latents.')
     parser.add_argument('--batch_size', type=int, default=256)

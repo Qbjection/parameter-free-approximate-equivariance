@@ -25,7 +25,7 @@ class GxGRegularFunctor(pl.LightningModule):
 
 
         # Select base model
-        if lambda_t > 0:
+        if lambda_t >= 0: # TODO revert this to > 0 after debugging
             get_latent = True
         else:
             get_latent = False

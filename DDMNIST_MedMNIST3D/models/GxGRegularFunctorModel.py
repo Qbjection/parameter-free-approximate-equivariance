@@ -5,11 +5,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 import pytorch_lightning as pl
 from models.BaseModels import DDMNISTCNN, CNN3DResnet
+from utils.entanglement import Entanglement
 from utils.representations import C4xC4RegularRepresentation, D4xD4RegularRepresentation, D1xD1RegularRepresentation
 
 class GxGRegularFunctor(pl.LightningModule):
     def __init__(self, lr=0.001, gamma=0.1, milestones=None, output_root=None, data_flag=None,
-                 group='C4xC4', lambda_c=1.0, lambda_t=0.5, equivariant_layer_id=9, device='cuda'):
+                 group='C4xC4', lambda_c=1.0, lambda_t=0.5, lambda_e=0.0, equivariant_layer_id=9, device='cuda'):
         super().__init__()
         # Save all hyperparameters including new ones for evaluation
         self.save_hyperparameters()
@@ -25,7 +26,7 @@ class GxGRegularFunctor(pl.LightningModule):
 
 
         # Select base model
-        if lambda_t > 0:
+        if lambda_t > 0 or lambda_e > 0:
             get_latent = True
         else:
             get_latent = False
@@ -36,6 +37,7 @@ class GxGRegularFunctor(pl.LightningModule):
         # Initialise functor parameters
         self.lambda_c = lambda_c
         self.lambda_t = lambda_t
+        self.lambda_e = lambda_e
         self.equivariant_layer_id = equivariant_layer_id
         
         self.group = group
@@ -50,7 +52,7 @@ class GxGRegularFunctor(pl.LightningModule):
 
 
     def forward(self, x):
-        if self.lambda_t > 0:
+        if self.lambda_t > 0 or self.lambda_e > 0:
             outputs, latent = self.model(x, self.equivariant_layer_id)
             return outputs, latent
         else:
@@ -128,7 +130,7 @@ class GxGRegularFunctor(pl.LightningModule):
         labels1 = y1
         labels2 = y2
         
-        if self.lambda_t > 0:
+        if self.lambda_t > 0 or self.lambda_e > 0:
             outputs1, latent1 = self(x1)
             outputs2, latent2 = self(x2)
         else:
@@ -151,15 +153,33 @@ class GxGRegularFunctor(pl.LightningModule):
         else:
             transformation_loss = 0
 
+        ########### entanglement loss ###########
+        if self.lambda_e > 0:
+            # don't need latent2 for this, since there is no requirement to use transformation loss
+
+            total_dims = self.model.c * self.model.expanded_factor
+            if self.group == 'C4xC4':
+                rep_dims = 16 # TODO might be a way to automate this
+            else:
+                raise NotImplementedError(f"Ent loss not implemented for groups ≠ C4xC4.")
+            tensor_system_dims = total_dims // rep_dims * rep_dims
+            tensor_latent_1 = latent1[:, :tensor_system_dims]
+            norm_tensor_latent_1 = tensor_latent_1 / torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True)
+            ent = Entanglement(norm_tensor_latent_1, tensor_system_dims // rep_dims, rep_dims)
+            entanglement_loss = ent.compute(normalize=True).get("entanglement_a").mean()
+        else:
+            entanglement_loss = 0
+
 
         ########### logging ###########
         losses = {
             f'{stage}_natural_loss': natural_loss,
-            f'{stage}_transformation_loss': transformation_loss
+            f'{stage}_transformation_loss': transformation_loss,
+            f'{stage}_entanglement_loss': entanglement_loss,
         }
         losses[f'{stage}_acc'] = self.get_accuracy(outputs1, labels1)
 
-        loss = self.lambda_c * natural_loss + self.lambda_t * transformation_loss
+        loss = self.lambda_c * natural_loss + self.lambda_t * transformation_loss + self.lambda_e * entanglement_loss
 
         if stage == 'train':
             losses['loss'] = loss

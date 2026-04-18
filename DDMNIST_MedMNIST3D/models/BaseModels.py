@@ -255,6 +255,7 @@ class DDMNISTCNN(torch.nn.Module):
         self.dims = {}
         
         self.expanded_factor = 11 # it was an 8
+        self.c = c #necessary so it can be used "upstairs" in GxGRegularFunctorModel
 
         self.layers = torch.nn.ModuleList([
             self.upsample, # Layer 0

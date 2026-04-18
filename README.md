@@ -29,22 +29,22 @@ pip install -r requirements.txt
 
 2. To run the $C_4, D_1, D_4$ experiments, run the following commands (respectively)
 ```
-python3 lightning_train_and_eval.py --group=C4xC4 --model=GxGregularfunctor --dataset=ddmnist_c4 --lambda_t=2 --lr=0.001 --fast
+python3 lightning_train_and_eval.py --group=C4xC4 --model=GxGregularfunctor --dataset=ddmnist_c4 --lambda_t=2 --lr=0.001 --equivariant_layer_id=12 --fast
 
-python3 lightning_train_and_eval.py --group=D1xD1 --model=GxGregularfunctor --dataset=ddmnist_d1 --lambda_t=1 --lr=0.001 --fast
+python3 lightning_train_and_eval.py --group=D1xD1 --model=GxGregularfunctor --dataset=ddmnist_d1 --lambda_t=1 --lr=0.001 --equivariant_layer_id=12 --fast
 
-python3 lightning_train_and_eval.py --group=D4xD4 --model=GxGregularfunctor --dataset=ddmnist_d4 --lambda_t=1 --lr=0.0005 --fast
+python3 lightning_train_and_eval.py --group=D4xD4 --model=GxGregularfunctor --dataset=ddmnist_d4 --lambda_t=1 --lr=0.0005 --equivariant_layer_id=12 --fast
 ```
 Optionally, you can set `--seed=d` with d $\in\{0,1,2,3,4\}$ for reproducibility.
 Add `--fast` for faster training with reduced logging overhead.
 
 Simlarly, to run the experiments for the baseline CNN, run the following commands
 ```
-python3 lightning_train_and_eval.py --group=C4xC4 --model=GxGregularfunctor --dataset=ddmnist_c4 --lambda_t=0 --lr=0.0005 --fast
+python3 lightning_train_and_eval.py --group=C4xC4 --model=GxGregularfunctor --dataset=ddmnist_c4 --lambda_t=0 --lr=0.0005 --equivariant_layer_id=12 --fast
 
-python3 lightning_train_and_eval.py --group=D1xD1 --model=GxGregularfunctor --dataset=ddmnist_d1 --lambda_t=0 --lr=0.001 --fast
+python3 lightning_train_and_eval.py --group=D1xD1 --model=GxGregularfunctor --dataset=ddmnist_d1 --lambda_t=0 --lr=0.001 --equivariant_layer_id=12 --fast
 
-python3 lightning_train_and_eval.py --group=D4xD4 --model=GxGregularfunctor --dataset=ddmnist_d4 --lambda_t=0 --lr=0.0005 --fast
+python3 lightning_train_and_eval.py --group=D4xD4 --model=GxGregularfunctor --dataset=ddmnist_d4 --lambda_t=0 --lr=0.0005 --equivariant_layer_id=12 --fast
 ``` 
 
 

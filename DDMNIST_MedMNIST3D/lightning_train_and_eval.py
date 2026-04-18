@@ -219,7 +219,7 @@ def run(args):
     milestones = [int(0.5 * args.num_epochs), int(0.75 * args.num_epochs)]
     
     ###################################### logger and checkpoints #####################################
-    model_name = f'{args.run}_{args.model_flag}_lambdaT_{args.lambda_t}_lambdaW_{args.lambda_W}_lr_{args.lr}_numepochs_{args.num_epochs}'
+    model_name = f'{args.run}_{args.model_flag}_lambdaT_{args.lambda_t}_lambdaE_{args.lambda_e}_lambdaW_{args.lambda_W}_lr_{args.lr}_numepochs_{args.num_epochs}'
     logger = TensorBoardLogger(
         save_dir=args.output_root,
         name=f'{args.data_flag}/{args.dataset}/{model_name}'

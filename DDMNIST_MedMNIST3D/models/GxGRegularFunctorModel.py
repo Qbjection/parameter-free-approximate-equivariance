@@ -120,6 +120,17 @@ class GxGRegularFunctor(pl.LightningModule):
     def get_natural_loss(self, outputs, y):
         loss = self.criterion(outputs, y)
         return loss
+
+    def _to_latent_tensor(self, latent) -> torch.Tensor:
+        if isinstance(latent, torch.Tensor):
+            return latent
+        if isinstance(latent, (list, tuple)):
+            if len(latent) == 0:
+                raise ValueError("Received empty latent list/tuple.")
+            if len(latent) == 1:
+                return latent[0]
+            return torch.cat(latent, dim=1)
+        raise TypeError(f"Unsupported latent container type: {type(latent)}")
     
     def get_accuracy(self, outputs, y):
         pred_class = torch.argmax(outputs, dim=1)
@@ -157,14 +168,17 @@ class GxGRegularFunctor(pl.LightningModule):
         if self.lambda_e > 0:
             # don't need latent2 for this, since there is no requirement to use transformation loss
 
-            total_dims = self.model.c * self.model.expanded_factor
+            latent1_tensor = self._to_latent_tensor(latent1)
+
+            total_dims = latent1_tensor.size(1)
             if self.group == 'C4xC4':
                 rep_dims = 16 # TODO might be a way to automate this
             else:
                 raise NotImplementedError(f"Ent loss not implemented for groups ≠ C4xC4.")
             tensor_system_dims = int(total_dims // rep_dims * rep_dims)
-            tensor_latent_1 = latent1[:, :tensor_system_dims]
-            norm_tensor_latent_1 = tensor_latent_1 / torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True)
+            tensor_latent_1 = latent1_tensor[:, :tensor_system_dims]
+            latent_1_norm = torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True).clamp_min(1e-12)
+            norm_tensor_latent_1 = tensor_latent_1 / latent_1_norm
             ent = Entanglement(norm_tensor_latent_1, tensor_system_dims // rep_dims, rep_dims)
             entanglement_loss = ent.compute(normalize=True).get("entanglement_a").mean()
         else:

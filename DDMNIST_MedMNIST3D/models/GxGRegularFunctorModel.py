@@ -162,7 +162,7 @@ class GxGRegularFunctor(pl.LightningModule):
                 rep_dims = 16 # TODO might be a way to automate this
             else:
                 raise NotImplementedError(f"Ent loss not implemented for groups ≠ C4xC4.")
-            tensor_system_dims = total_dims // rep_dims * rep_dims
+            tensor_system_dims = int(total_dims // rep_dims * rep_dims)
             tensor_latent_1 = latent1[:, :tensor_system_dims]
             norm_tensor_latent_1 = tensor_latent_1 / torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True)
             ent = Entanglement(norm_tensor_latent_1, tensor_system_dims // rep_dims, rep_dims)

@@ -103,7 +103,7 @@ def main():
     pre.add_argument('--lambda_e_values', type=float, nargs='+', required=True,
                      help='List of lambda_e values to sweep over.')
     sweep_args, remaining = pre.parse_known_args()
-    sys.argv = [sys.argv[0]] + remaining
+    sys.argv = [sys.argv[0]] + remaining # sys.argv is what is seen by the system (as args of python, basically) 
 
     args = get_args()
     seeds = args.seed

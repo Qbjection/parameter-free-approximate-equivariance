@@ -199,7 +199,7 @@ class GxGRegularFunctor(pl.LightningModule):
             losses['loss'] = loss
         else:
             losses[f'{stage}_loss'] = loss
-            unreg_loss = natural_loss + transformation_loss
+            unreg_loss = natural_loss + transformation_loss + entanglement_loss
             losses[f'{stage}_unreg_loss'] = unreg_loss
         self.log_dict(losses, prog_bar=True, on_step=False, on_epoch=True)
         return losses

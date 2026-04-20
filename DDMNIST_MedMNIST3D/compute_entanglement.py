@@ -45,8 +45,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='ddmnist_c4', choices=DATASET_TO_DATAMODULE.keys(),
                         help='Dataset to use for extracting latents.')
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--split', type=str, default='test', choices=['train', 'val', 'test'],
-                        help='Which data split to extract latents from.')
+    parser.add_argument('--augment_test', action='store_true', help='Whether to use augmented test set.')
 
     args = parser.parse_args()
 
@@ -71,7 +70,7 @@ if __name__ == "__main__":
 
         # Set up data
         DataModuleClass = DATASET_TO_DATAMODULE[args.dataset]
-        data_module = DataModuleClass(args.batch_size)
+        data_module = DataModuleClass(args.batch_size, augment_test=args.augment_test)
         data_module.setup()
 
         for split in ['train', 'val', 'test']:

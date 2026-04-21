@@ -158,6 +158,8 @@ class GxGRegularFunctor(pl.LightningModule):
         #     natural_loss = self.get_natural_loss(outputs1, labels1)
 
         # new, correct logic: this is necessary for online data augmentation
+        # otherwise we only have data "corruption", 
+        # which gives an unfair advantage to the regularized model with 2x the number of encoder passes.
         natural_loss1 = self.get_natural_loss(outputs1, labels1)
         natural_loss2 = self.get_natural_loss(outputs2, labels2)
         natural_loss = 0.5*natural_loss1 + 0.5*natural_loss2

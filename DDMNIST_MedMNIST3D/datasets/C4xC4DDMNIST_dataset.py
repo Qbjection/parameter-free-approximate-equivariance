@@ -53,7 +53,7 @@ class PairedC4xC4DDMNIST(Dataset):
         elif code == 2: net_rot = 180
         elif code == 3: net_rot = 270
 
-        correction = net_rot# - angle_small
+        correction = net_rot - angle_small # this just helps introduce interpolation artifacts
         x = TF.rotate(x, correction, InterpolationMode.BILINEAR)
         
         return x, code

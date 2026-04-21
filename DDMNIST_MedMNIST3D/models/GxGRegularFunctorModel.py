@@ -137,7 +137,7 @@ class GxGRegularFunctor(pl.LightningModule):
         return ((pred_class == y).sum() / pred_class.shape[0]).item()
 
     def calculate_loss(self, batch, batch_idx, stage):
-        (x1, y1), (x2, y2), transformation_type, covariate = batch
+        (x1, y1), (x2, y2), transformation_type, covariate = batch # x1 is random group-aug of original DD image, x2 is random group-aug of x1.
         labels1 = y1
         labels2 = y2
         

@@ -1,4 +1,5 @@
 import argparse
+import numpy as np
 import torch
 from models.GxGRegularFunctorModel import GxGRegularFunctor
 from datasets.C4xC4DDMNIST_dataset import C4xC4DDMNISTDataModule
@@ -7,6 +8,11 @@ from datasets.D1xD1DDMNIST_dataset import D1xD1DDMNISTDataModule
 
 from utils.entanglement import Entanglement, get_average_entanglement, get_normalized_average_entanglement
 
+
+def mean_std_str(values):
+    arr = np.array(values)
+    return f"{arr.mean():.4f} +/- {arr.std():.4f}"
+
 DATASET_TO_DATAMODULE = {
     'ddmnist_c4': C4xC4DDMNISTDataModule,
     'ddmnist_d4': D4xD4DDMNISTDataModule,
@@ -14,11 +20,12 @@ DATASET_TO_DATAMODULE = {
 }
 
 
-def extract_latents(model, dataloader, device):
-    """Run a forward pass over the dataloader and collect latent vectors."""
+def extract_latents_and_predictions(model, dataloader, device):
+    """Run a forward pass over the dataloader and collect latents, labels, and predicted classes."""
     model.eval()
     all_latents = []
     all_labels = []
+    all_predictions = []
 
     with torch.no_grad():
         for batch in dataloader:
@@ -26,16 +33,19 @@ def extract_latents(model, dataloader, device):
             x1 = x1.to(device)
 
             # Forward pass through the underlying DDMNIST CNN
-            outputs, latents = model.model(x1, [12])
+            logits, latents = model.model(x1, [12])
             # latents is a list of tensors (one per tracked layer); concatenate them
             latent = torch.cat(latents, dim=-1)
+            predictions = torch.argmax(logits, dim=1)
 
             all_latents.append(latent.cpu())
             all_labels.append(y1)
+            all_predictions.append(predictions.cpu())
 
     all_latents = torch.cat(all_latents, dim=0)
     all_labels = torch.cat(all_labels, dim=0)
-    return all_latents, all_labels
+    all_predictions = torch.cat(all_predictions, dim=0)
+    return all_latents, all_labels, all_predictions
 
 
 if __name__ == "__main__":
@@ -54,6 +64,10 @@ if __name__ == "__main__":
     train_ents = []
     val_ents = []
     test_ents = []
+
+    train_accuracies = []
+    val_accuracies = []
+    test_accuracies = []
 
     num_versions = len(args.versions)
     print(f"Computing entanglement for {num_versions} versions: {args.versions}")
@@ -81,8 +95,9 @@ if __name__ == "__main__":
             else:
                 dataloader = data_module.test_dataloader()
 
-            # Extract latents
-            latents, labels = extract_latents(model, dataloader, device)
+            # Extract latents and predictions
+            latents, labels, predictions = extract_latents_and_predictions(model, dataloader, device)
+            split_accuracy = (predictions == labels).float().mean().item()
 
             if args.dataset == 'ddmnist_c4':
                 # For C4xC4, the regular representation is 16-dim
@@ -102,15 +117,23 @@ if __name__ == "__main__":
             
             if split == "train":
                 train_ents.append(avg_entanglement)
+                train_accuracies.append(split_accuracy)
             elif split == "val":
                 val_ents.append(avg_entanglement)
+                val_accuracies.append(split_accuracy)
             elif split == "test":
                 test_ents.append(avg_entanglement)
+                test_accuracies.append(split_accuracy)
 
     print(f"Average entanglement across versions:")
     print(f"Train: {sum(train_ents) / len(train_ents):.4f}")
     print(f"Val: {sum(val_ents) / len(val_ents):.4f}")
     print(f"Test: {sum(test_ents) / len(test_ents):.4f}")
+
+    print(f"\nAccuracy across versions (mean +/- std):")
+    print(f"Train: {mean_std_str(train_accuracies)}")
+    print(f"Val:   {mean_std_str(val_accuracies)}")
+    print(f"Test:  {mean_std_str(test_accuracies)}")
 
     avg_entanglement_random_vectors = get_normalized_average_entanglement(num_samples=1000, dim_a=tensor_latents.shape[1] // rep_dims, dim_b=rep_dims)
     avg_entropy = avg_entanglement_random_vectors.get("normalized_avg_entropy_A")

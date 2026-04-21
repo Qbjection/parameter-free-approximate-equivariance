@@ -141,11 +141,12 @@ class GxGRegularFunctor(pl.LightningModule):
         labels1 = y1
         labels2 = y2
         
-        # if self.lambda_t > 0 or self.lambda_e > 0:
-        outputs1, latent1 = self(x1)
-        outputs2, latent2 = self(x2)
-        # else:
-        #     outputs1 = self(x1)
+        if self.lambda_t > 0 or self.lambda_e > 0:
+            outputs1, latent1 = self(x1)
+            outputs2, latent2 = self(x2)
+        else:
+            outputs1 = self(x1)
+            outputs2 = self(x2)
         
 
         ########### natural loss ###########

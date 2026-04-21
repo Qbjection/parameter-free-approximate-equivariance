@@ -1,6 +1,8 @@
 import argparse
+import random
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 from models.GxGRegularFunctorModel import GxGRegularFunctor
 from datasets.C4xC4DDMNIST_dataset import C4xC4DDMNISTDataModule
 from datasets.D4xD4DDMNIST_dataset import D4xD4DDMNISTDataModule
@@ -59,7 +61,29 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Seed all RNGs before any dataset/model construction so that (i) the MNIST
+    # pairings sampled in DDMNIST._create_data are identical across invocations,
+    # and (ii) the rotations sampled in PairedC4xC4DDMNIST.augment_image are
+    # identical across invocations.
+    torch.manual_seed(0)
+    np.random.seed(0)
+    random.seed(0)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Build the datasets once so every version evaluates on the same splits.
+    DataModuleClass = DATASET_TO_DATAMODULE[args.dataset]
+    data_module = DataModuleClass(args.batch_size, augment_test=args.augment_test)
+    data_module.setup()
+
+    # Rebuild the DataLoaders with num_workers=0 so every augmentation call
+    # runs in the main process under the seeds set above, instead of in
+    # independently-seeded worker subprocesses.
+    dataloaders = {
+        'train': DataLoader(data_module.train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0),
+        'val':   DataLoader(data_module.val_dataset,   batch_size=args.batch_size, shuffle=False, num_workers=0),
+        'test':  DataLoader(data_module.test_dataset,  batch_size=args.batch_size, shuffle=False, num_workers=0),
+    }
 
     train_ents = []
     val_ents = []
@@ -73,27 +97,24 @@ if __name__ == "__main__":
     print(f"Computing entanglement for {num_versions} versions: {args.versions}")
 
     for version in args.versions:
+        # Re-seed before each version so every version iterates the dataloaders
+        # under identical augmentation RNG state (the dataset splits are already
+        # fixed, but augment_image consumes random draws as batches are produced).
+        torch.manual_seed(0)
+        np.random.seed(0)
+        random.seed(0)
+
         # Load model from checkpoint
         model = GxGRegularFunctor.load_from_checkpoint(
-            args.checkpoint_path + f"version_{version}/checkpoints/best_model.ckpt", 
+            args.checkpoint_path + f"version_{version}/checkpoints/best_model.ckpt",
             map_location=device
         )
         # Ensure the inner CNN returns latents
         model.model.get_latent = True
         model = model.to(device)
 
-        # Set up data
-        DataModuleClass = DATASET_TO_DATAMODULE[args.dataset]
-        data_module = DataModuleClass(args.batch_size, augment_test=args.augment_test)
-        data_module.setup()
-
         for split in ['train', 'val', 'test']:
-            if split == 'train':
-                dataloader = data_module.train_dataloader()
-            elif split == 'val':
-                dataloader = data_module.val_dataloader()
-            else:
-                dataloader = data_module.test_dataloader()
+            dataloader = dataloaders[split]
 
             # Extract latents and predictions
             latents, labels, predictions = extract_latents_and_predictions(model, dataloader, device)

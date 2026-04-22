@@ -13,7 +13,7 @@ from utils.entanglement import Entanglement, get_average_entanglement, get_norma
 
 def mean_std_str(values):
     arr = np.array(values)
-    return f"{arr.mean():.4f} +/- {arr.std():.4f}"
+    return f"{arr.mean():.4f} ± {arr.std():.4f}"
 
 DATASET_TO_DATAMODULE = {
     'ddmnist_c4': C4xC4DDMNISTDataModule,
@@ -146,10 +146,10 @@ if __name__ == "__main__":
                 test_ents.append(avg_entanglement)
                 test_accuracies.append(split_accuracy)
 
-    print(f"Average entanglement across versions:")
-    print(f"Train: {sum(train_ents) / len(train_ents):.4f}")
-    print(f"Val: {sum(val_ents) / len(val_ents):.4f}")
-    print(f"Test: {sum(test_ents) / len(test_ents):.4f}")
+    print(f"Entanglement across versions (mean +/- std):")
+    print(f"Train: {mean_std_str(train_ents)}")
+    print(f"Val:   {mean_std_str(val_ents)}")
+    print(f"Test:  {mean_std_str(test_ents)}")
 
     print(f"\nAccuracy across versions (mean +/- std):")
     print(f"Train: {mean_std_str(train_accuracies)}")

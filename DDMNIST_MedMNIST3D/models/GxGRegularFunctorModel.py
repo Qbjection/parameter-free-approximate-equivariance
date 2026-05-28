@@ -188,7 +188,11 @@ class GxGRegularFunctor(pl.LightningModule):
                 rep_dims = 2
             else:
                 raise NotImplementedError(f"Ent loss not implemented for given group {self.group}")
-            tensor_system_dims = int(total_dims // rep_dims * rep_dims)
+            if self.group != 'D1xD1':
+                tensor_system_dims = int(total_dims // rep_dims * rep_dims)
+            else: #TODO THIS IS HARDCODED, FUTURE WORK SHOULD MAKE IT MORE GENERAL
+                tensor_system_dims = 64
+            
             tensor_latent_1 = latent1_tensor[:, :tensor_system_dims]
             latent_1_norm = torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True).clamp_min(1e-12)
             norm_tensor_latent_1 = tensor_latent_1 / latent_1_norm

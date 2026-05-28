@@ -181,9 +181,13 @@ class GxGRegularFunctor(pl.LightningModule):
 
             total_dims = latent1_tensor.size(1)
             if self.group == 'C4xC4':
-                rep_dims = 16 # TODO might be a way to automate this
+                rep_dims = 16
+            elif self.group == 'D4xD4':
+                rep_dims = 8 # we disentangle into the regular reps of D4
+            elif self.group == 'D1xD1':
+                rep_dims = 2
             else:
-                raise NotImplementedError(f"Ent loss not implemented for groups ≠ C4xC4.")
+                raise NotImplementedError(f"Ent loss not implemented for given group {self.group}")
             tensor_system_dims = int(total_dims // rep_dims * rep_dims)
             tensor_latent_1 = latent1_tensor[:, :tensor_system_dims]
             latent_1_norm = torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True).clamp_min(1e-12)

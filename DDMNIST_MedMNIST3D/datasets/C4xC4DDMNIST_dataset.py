@@ -44,17 +44,19 @@ class PairedC4xC4DDMNIST(Dataset):
         code = random.randint(0, 3)
         x = img
 
-        # Introduce noise
-        angle_small = np.random.uniform(-180, 180)
-        x = TF.rotate(x, float(angle_small), InterpolationMode.BILINEAR)
+        # # Introduce noise — was experimental
+        # angle_small = np.random.uniform(-180, 180)
+        # x = TF.rotate(x, float(angle_small), InterpolationMode.BILINEAR)
 
         if   code == 0: net_rot =   0
         elif code == 1: net_rot =  90
         elif code == 2: net_rot = 180
         elif code == 3: net_rot = 270
 
-        correction = net_rot# - angle_small
-        x = TF.rotate(x, correction, InterpolationMode.BILINEAR)
+        # correction = net_rot - angle_small # this just helps introduce interpolation artifacts
+        # x = TF.rotate(x, correction, InterpolationMode.BILINEAR)
+
+        x = TF.rotate(x, net_rot, InterpolationMode.BILINEAR)
         
         return x, code
     

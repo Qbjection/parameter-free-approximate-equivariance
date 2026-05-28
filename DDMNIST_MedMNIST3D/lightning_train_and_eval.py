@@ -91,7 +91,7 @@ def get_dataset_from_args(args):
     raise NotImplementedError
 
 
-def get_model_from_args(args):
+def get_model_from_args(args, milestones=None, log_dir=None, n_channels=None, n_classes=None, task=None):
     if args.model == 'vanilla':
         return MedMNISTModel(args.model_flag, n_channels, n_classes, task, args.data_flag, args.size, args.run,
                           milestones=milestones, output_root=log_dir)
@@ -116,7 +116,7 @@ def get_model_from_args(args):
                           lr=args.lr, gamma=args.gamma)
     elif args.model == 'GxGregularfunctor':
         return GxGRegularFunctor(lr=args.lr, gamma=args.gamma, milestones=milestones, output_root=log_dir, device=args.device, group=args.group,
-                                   lambda_c=args.lambda_c, lambda_t=args.lambda_t, equivariant_layer_id=args.equivariant_layer_id, data_flag=args.data_flag,)
+                                   lambda_c=args.lambda_c, lambda_t=args.lambda_t, lambda_e=args.lambda_e, equivariant_layer_id=args.equivariant_layer_id, data_flag=args.data_flag,)
     elif args.model == 'MedMNISTGxGregularfunctor':
         return MedMNISTGxGRegularFunctor(lr=args.lr, gamma=args.gamma, milestones=milestones, output_root=log_dir, device=args.device, group=args.group,
                                    lambda_c=args.lambda_c, lambda_t=args.lambda_t, equivariant_layer_id=args.equivariant_layer_id, data_flag=args.data_flag,)
@@ -145,6 +145,7 @@ def get_args():
 
     parser.add_argument('--lambda_c', type=float, default=1)
     parser.add_argument('--lambda_t', type=float, default=0.5)
+    parser.add_argument('--lambda_e', type=float, default=0.0, help='Weight for entanglement loss')
     parser.add_argument('--lambda_W', type=float, default=0.1)
     parser.add_argument('--latent_transform_process', type=str, default='from_generators')
     parser.add_argument('--W_init', type=str, default='orthogonal')
@@ -163,13 +164,15 @@ def get_args():
     parser.add_argument('--run', type=str, default='model1')
     parser.add_argument('--visible_gpus', type=str, default='0,1,2,3')
     parser.add_argument('--gpu_id', type=str, default='0')
-    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--seed', type=int, nargs='+', default=[0])
     parser.add_argument('--fast', action='store_true', help='Disable expensive logging for speed')
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    args = get_args()
+def run(args):
+    """Run a single training + test cycle. Returns the list of test result dicts."""
+    import copy
+    args = copy.deepcopy(args)
 
     pl.seed_everything(args.seed, workers=True)
 
@@ -185,6 +188,9 @@ if __name__ == "__main__":
         torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
         args.pin_memory = True  # Force pin_memory in fast mode
         
+    print(f"\n{'='*60}")
+    print(f"Running with seed={args.seed}")
+    print(f"{'='*60}")
     print(f"Using {args.num_workers} dataloader workers")
     print(f"Pin memory: {args.pin_memory}")
 
@@ -197,16 +203,23 @@ if __name__ == "__main__":
     args.as_rgb = True if not args.not_rgb else False
     print("Using RGB: ", args.as_rgb)
 
+    # WARNING: A BIT HACKY BUT GXGFUNCTOR DOESN'T NEED THEM
+    if args.model == "GxGregularfunctor":
+        n_channels = None
+        n_classes = None
+        task = None
+
     if args.data_flag is not None:
         info = INFO[args.data_flag]
         task = info['task']
         n_channels = 3 if args.as_rgb else info['n_channels']
         n_classes = len(info['label'])
+    
 
     milestones = [int(0.5 * args.num_epochs), int(0.75 * args.num_epochs)]
     
     ###################################### logger and checkpoints #####################################
-    model_name = f'{args.run}_{args.model_flag}_lambdaT_{args.lambda_t}_lambdaW_{args.lambda_W}_lr_{args.lr}_numepochs_{args.num_epochs}'
+    model_name = f'{args.run}_{args.model_flag}_lambdaT_{args.lambda_t}_lambdaE_{args.lambda_e}_lambdaW_{args.lambda_W}_lr_{args.lr}_numepochs_{args.num_epochs}'
     logger = TensorBoardLogger(
         save_dir=args.output_root,
         name=f'{args.data_flag}/{args.dataset}/{model_name}'
@@ -282,7 +295,7 @@ if __name__ == "__main__":
         args.modularity_exponent = 2
 
     ###################################### model #####################################
-    model = get_model_from_args(args).to(device)
+    model = get_model_from_args(args, milestones=milestones, log_dir=log_dir, n_channels=n_channels, n_classes=n_classes, task=task).to(device)
     model.print_hyperparameters()
 
     ###################################### callbacks #####################################
@@ -326,14 +339,61 @@ if __name__ == "__main__":
     if args.dataset == 'ddmnist_c4':
         data_module_augmented_test = C4xC4DDMNISTDataModule(256, augment_test=True)
         data_module_augmented_test.setup(stage='test')
-        trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
+        results = trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
     elif args.dataset == 'ddmnist_d4':
         data_module_augmented_test = D4xD4DDMNISTDataModule(256, augment_test=True)
         data_module_augmented_test.setup(stage='test')
-        trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
+        results = trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
     elif args.dataset == 'ddmnist_d1':
         data_module_augmented_test = D1xD1DDMNISTDataModule(256, augment_test=True)
         data_module_augmented_test.setup(stage='test')
-        trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
+        results = trainer.test(model, dataloaders=[data_module.test_dataloader(), data_module_augmented_test.test_dataloader()])
     else:
-        trainer.test(model, data_module)
+        results = trainer.test(model, data_module)
+
+    return results
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    args = get_args()
+    seeds = args.seed  # list of seeds
+
+    all_results = []
+    for seed in seeds:
+        args.seed = seed
+        results = run(args)
+        all_results.append(results)
+
+        # Didn't work, so commenting it out:
+        # # Reset state between runs so each seed behaves
+        # # identically to a fresh process invocation
+        # import gc
+        # gc.collect()  # release Python refs to GPU tensors first
+        # if torch.cuda.is_available():
+        #     torch.cuda.empty_cache()
+        #     torch.cuda.reset_peak_memory_stats()
+        #     torch.backends.cudnn.benchmark = False
+
+    # Aggregate and print mean/std across seeds
+    if len(seeds) > 1:
+        print(f"\n{'='*60}")
+        print(f"AGGREGATED RESULTS OVER {len(seeds)} SEEDS: {seeds}")
+        print(f"{'='*60}")
+
+        # results is a list (per seed) of lists (per dataloader) of dicts
+        num_dataloaders = len(all_results[0])
+        for dl_idx in range(num_dataloaders):
+            if num_dataloaders > 1:
+                print(f"\n--- Dataloader {dl_idx} ---")
+            metrics = {}
+            for seed_results in all_results:
+                for key, val in seed_results[dl_idx].items():
+                    metrics.setdefault(key, []).append(val)
+
+            for key, vals in sorted(metrics.items()):
+                vals = np.array(vals)
+                print(f"  {key}: {vals.mean():.4f} +/- {vals.std():.4f}")
+    else:
+        print("\nSingle seed run, no aggregation needed.")

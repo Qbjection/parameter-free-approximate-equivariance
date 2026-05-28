@@ -255,6 +255,7 @@ class DDMNISTCNN(torch.nn.Module):
         self.dims = {}
         
         self.expanded_factor = 11 # it was an 8
+        self.c = c #necessary so it can be used "upstairs" in GxGRegularFunctorModel
 
         self.layers = torch.nn.ModuleList([
             self.upsample, # Layer 0
@@ -303,7 +304,6 @@ class DDMNISTCNN(torch.nn.Module):
             x = layer(x)
             if id in latent_ids:
                 latents.append(x.reshape(x.shape[0], -1))
-
 
         if self.get_latent:
             return x, latents

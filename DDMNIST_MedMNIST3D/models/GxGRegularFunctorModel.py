@@ -189,7 +189,7 @@ class GxGRegularFunctor(pl.LightningModule):
                 tensor_system_dims = 64 #TODO THIS IS HARDCODED, FUTURE WORK SHOULD MAKE IT MORE GENERAL
             else:
                 raise NotImplementedError(f"Ent loss not implemented for given group {self.group}")
-            tensor_system_dims = int(total_dims // rep_dims * rep_dims)
+            
             if self.group != 'D1xD1':
                 tensor_system_dims = int(total_dims // rep_dims * rep_dims)
 

@@ -135,6 +135,8 @@ def main():
                 a.lambda_e = lam_e
                 a.lambda_t = lam_t
                 a.seed = seed
+                a.equivariant_layer_id = 12
+                a.fast = True
                 per_seed.append(run(a))
             aggregated = aggregate_per_lambda(per_seed)
             sweep_results[(lam_e, lam_t)] = aggregated

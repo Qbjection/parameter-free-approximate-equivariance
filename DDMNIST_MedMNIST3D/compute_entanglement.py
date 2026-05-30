@@ -57,7 +57,6 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='ddmnist_c4', choices=DATASET_TO_DATAMODULE.keys(),
                         help='Dataset to use for extracting latents.')
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--augment_test', action='store_true', help='Whether to use augmented test set.')
 
     args = parser.parse_args()
 
@@ -73,25 +72,24 @@ if __name__ == "__main__":
 
     # Build the datasets once so every version evaluates on the same splits.
     DataModuleClass = DATASET_TO_DATAMODULE[args.dataset]
-    data_module = DataModuleClass(args.batch_size, augment_test=args.augment_test)
-    data_module.setup()
+    dm_plain = DataModuleClass(args.batch_size, augment_test=False)
+    dm_plain.setup()
+    dm_aug = DataModuleClass(args.batch_size, augment_test=True)
+    dm_aug.setup()
 
     # Rebuild the DataLoaders with num_workers=0 so every augmentation call
     # runs in the main process under the seeds set above, instead of in
     # independently-seeded worker subprocesses.
     dataloaders = {
-        'train': DataLoader(data_module.train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0),
-        'val':   DataLoader(data_module.val_dataset,   batch_size=args.batch_size, shuffle=False, num_workers=0),
-        'test':  DataLoader(data_module.test_dataset,  batch_size=args.batch_size, shuffle=False, num_workers=0),
+        'test':     DataLoader(dm_plain.test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0),
+        'aug_test': DataLoader(dm_aug.test_dataset,   batch_size=args.batch_size, shuffle=False, num_workers=0),
     }
 
-    train_ents = []
-    val_ents = []
     test_ents = []
+    aug_test_ents = []
 
-    train_accuracies = []
-    val_accuracies = []
     test_accuracies = []
+    aug_test_accuracies = []
 
     num_versions = len(args.versions)
     print(f"Computing entanglement for {num_versions} versions: {args.versions}")
@@ -113,7 +111,7 @@ if __name__ == "__main__":
         model.model.get_latent = True
         model = model.to(device)
 
-        for split in ['train', 'val', 'test']:
+        for split in ['test', 'aug_test']:
             dataloader = dataloaders[split]
 
             # Extract latents and predictions
@@ -136,25 +134,20 @@ if __name__ == "__main__":
             else:
                 raise NotImplementedError("Entanglement computation is currently only implemented for the DDMNIST C4xC4 dataset.")
             
-            if split == "train":
-                train_ents.append(avg_entanglement)
-                train_accuracies.append(split_accuracy)
-            elif split == "val":
-                val_ents.append(avg_entanglement)
-                val_accuracies.append(split_accuracy)
-            elif split == "test":
+            if split == "test":
                 test_ents.append(avg_entanglement)
                 test_accuracies.append(split_accuracy)
+            elif split == "aug_test":
+                aug_test_ents.append(avg_entanglement)
+                aug_test_accuracies.append(split_accuracy)
 
     print(f"Entanglement across versions (mean +/- std):")
-    print(f"Train: {mean_std_str(train_ents)}")
-    print(f"Val:   {mean_std_str(val_ents)}")
-    print(f"Test:  {mean_std_str(test_ents)}")
+    print(f"Test:     {mean_std_str(test_ents)}")
+    print(f"Aug Test: {mean_std_str(aug_test_ents)}")
 
     print(f"\nAccuracy across versions (mean +/- std):")
-    print(f"Train: {mean_std_str(train_accuracies)}")
-    print(f"Val:   {mean_std_str(val_accuracies)}")
-    print(f"Test:  {mean_std_str(test_accuracies)}")
+    print(f"Test:     {mean_std_str(test_accuracies)}")
+    print(f"Aug Test: {mean_std_str(aug_test_accuracies)}")
 
     avg_entanglement_random_vectors = get_normalized_average_entanglement(num_samples=1000, dim_a=tensor_latents.shape[1] // rep_dims, dim_b=rep_dims)
     avg_entropy = avg_entanglement_random_vectors.get("normalized_avg_entropy_A")

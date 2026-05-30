@@ -137,6 +137,129 @@ class Entanglement():
         
         return entropy
 
+class TripartiteEntanglement():
+    """
+    Compute the three bipartite entanglement entropies (A:BC, B:AC, C:AB) of a
+    tripartite pure state vector in a space A (x) B (x) C.
+
+    The middle cut B:AC is not directly expressible by the bipartite
+    `Entanglement` class because B sits between A and C in the tensor ordering.
+    We handle all three cuts uniformly by permuting axes so that the isolated
+    subsystem is on one side of the tensor product, then reusing the bipartite
+    machinery as-is.
+
+    Supports a single vector of shape (dim_a*dim_b*dim_c,) or a batch of shape
+    (batch_size, dim_a*dim_b*dim_c).
+    """
+    def __init__(self, vectors, dim_a, dim_b, dim_c):
+        if not torch.is_tensor(vectors):
+            vectors = torch.tensor(vectors, dtype=torch.float32)
+
+        if vectors.dim() == 1:
+            vectors = vectors.unsqueeze(0)
+            self.is_single = True
+        else:
+            self.is_single = False
+
+        self.vectors = vectors
+        self.dim_a = int(dim_a)
+        self.dim_b = int(dim_b)
+        self.dim_c = int(dim_c)
+
+    def _isolated_bipartite_vectors(self, subsystem: str):
+        """
+        Permute axes so that `subsystem` sits in the first tensor factor and
+        the other two are merged into the second. Returns a (batch, dim_iso *
+        dim_rest) tensor along with (dim_iso, dim_rest).
+        """
+        batch = self.vectors.shape[0]
+        # Reshape flat vector into (batch, dim_a, dim_b, dim_c).
+        reshaped = self.vectors.reshape(batch, self.dim_a, self.dim_b, self.dim_c)
+
+        if subsystem == 'A':
+            permuted = reshaped  # (batch, A, B, C)
+            dim_iso, dim_rest = self.dim_a, self.dim_b * self.dim_c
+        elif subsystem == 'B':
+            permuted = reshaped.permute(0, 2, 1, 3)  # (batch, B, A, C)
+            dim_iso, dim_rest = self.dim_b, self.dim_a * self.dim_c
+        elif subsystem == 'C':
+            permuted = reshaped.permute(0, 3, 1, 2)  # (batch, C, A, B)
+            dim_iso, dim_rest = self.dim_c, self.dim_a * self.dim_b
+        else:
+            raise ValueError(f"subsystem must be one of 'A', 'B', 'C'; got {subsystem!r}")
+
+        bipartite_vectors = permuted.reshape(batch, dim_iso * dim_rest)
+        return bipartite_vectors, dim_iso, dim_rest
+
+    def _entanglement_of_isolated(self, subsystem: str, normalize: bool):
+        bipartite_vectors, dim_iso, dim_rest = self._isolated_bipartite_vectors(subsystem)
+        # Build a bipartite Entanglement with the isolated subsystem as A; its
+        # `entanglement_a` is then exactly S(rho_iso), i.e. the iso:rest cut.
+        ent = Entanglement(bipartite_vectors, dim_iso, dim_rest)
+        result = ent.compute(normalize=normalize)
+        return result["entanglement_a"]
+
+    def compute(self, normalize: bool = False):
+        """
+        Returns the three bipartite entanglement entropies as a dict:
+
+            entanglement_a_bc : S(rho_A) for the cut A : BC
+            entanglement_b_ac : S(rho_B) for the cut B : AC  (the middle cut)
+            entanglement_c_ab : S(rho_C) for the cut C : AB
+        """
+        e_a = self._entanglement_of_isolated('A', normalize)
+        e_b = self._entanglement_of_isolated('B', normalize)
+        e_c = self._entanglement_of_isolated('C', normalize)
+
+        if self.is_single:
+            e_a = e_a.squeeze(0)
+            e_b = e_b.squeeze(0)
+            e_c = e_c.squeeze(0)
+
+        return {
+            "entanglement_a_bc": e_a,
+            "entanglement_b_ac": e_b,
+            "entanglement_c_ab": e_c,
+        }
+
+
+def get_average_tripartite_entanglement(num_samples, dim_a, dim_b, dim_c, normalize: bool = False, seed=0):
+    generator = torch.Generator().manual_seed(seed)
+    total_a_bc = 0
+    total_b_ac = 0
+    total_c_ab = 0
+
+    for _ in range(num_samples):
+        random_unit_vector = torch.randn(int(dim_a * dim_b * dim_c), generator=generator)
+        random_unit_vector /= torch.norm(random_unit_vector)
+
+        entanglement = TripartiteEntanglement(random_unit_vector, dim_a, dim_b, dim_c)
+        vne = entanglement.compute(normalize=normalize)
+        total_a_bc += vne.get("entanglement_a_bc")
+        total_b_ac += vne.get("entanglement_b_ac")
+        total_c_ab += vne.get("entanglement_c_ab")
+
+    return {
+        "avg_entropy_a_bc": total_a_bc / num_samples,
+        "avg_entropy_b_ac": total_b_ac / num_samples,
+        "avg_entropy_c_ab": total_c_ab / num_samples,
+    }
+
+
+def get_normalized_average_tripartite_entanglement(num_samples, dim_a, dim_b, dim_c):
+    avg = get_average_tripartite_entanglement(num_samples, dim_a, dim_b, dim_c)
+    # For each cut, the maximum entropy is log2(min(dim_iso, dim_rest)).
+    max_a = torch.log2(torch.tensor(min(dim_a, dim_b * dim_c), dtype=torch.float32))
+    max_b = torch.log2(torch.tensor(min(dim_b, dim_a * dim_c), dtype=torch.float32))
+    max_c = torch.log2(torch.tensor(min(dim_c, dim_a * dim_b), dtype=torch.float32))
+
+    return {
+        "normalized_avg_entropy_a_bc": avg.get("avg_entropy_a_bc") / max_a,
+        "normalized_avg_entropy_b_ac": avg.get("avg_entropy_b_ac") / max_b,
+        "normalized_avg_entropy_c_ab": avg.get("avg_entropy_c_ab") / max_c,
+    }
+
+
 def get_average_entanglement(num_samples, dim_a, dim_b, normalize: bool = False, seed=0):
     generator = torch.Generator().manual_seed(seed)  # For reproducibility
     total_entropy_A = 0

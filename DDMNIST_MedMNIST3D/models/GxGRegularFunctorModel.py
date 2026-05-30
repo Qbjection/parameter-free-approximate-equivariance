@@ -5,12 +5,13 @@ import torch.nn.functional as F
 import torch.optim as optim
 import pytorch_lightning as pl
 from models.BaseModels import DDMNISTCNN, CNN3DResnet
-from utils.entanglement import Entanglement
+from utils.entanglement import Entanglement, TripartiteEntanglement
 from utils.representations import C4xC4RegularRepresentation, D4xD4RegularRepresentation, D1xD1RegularRepresentation
 
 class GxGRegularFunctor(pl.LightningModule):
     def __init__(self, lr=0.001, gamma=0.1, milestones=None, output_root=None, data_flag=None,
-                 group='C4xC4', lambda_c=1.0, lambda_t=0.5, lambda_e=0.0, equivariant_layer_id=9, device='cuda'):
+                 group='C4xC4', lambda_c=1.0, lambda_t=0.5, lambda_e=0.0, equivariant_layer_id=9, device='cuda',
+                 entanglement_type='bipartite'):
         super().__init__()
         # Save all hyperparameters including new ones for evaluation
         self.save_hyperparameters()
@@ -38,6 +39,7 @@ class GxGRegularFunctor(pl.LightningModule):
         self.lambda_c = lambda_c
         self.lambda_t = lambda_t
         self.lambda_e = lambda_e
+        self.entanglement_type = entanglement_type
         self.equivariant_layer_id = equivariant_layer_id
         
         self.group = group
@@ -193,11 +195,32 @@ class GxGRegularFunctor(pl.LightningModule):
             if self.group != 'D1xD1':
                 tensor_system_dims = int(total_dims // rep_dims * rep_dims)
 
-            tensor_latent_1 = latent1_tensor[:, :tensor_system_dims]
-            latent_1_norm = torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True).clamp_min(1e-12)
-            norm_tensor_latent_1 = tensor_latent_1 / latent_1_norm
-            ent = Entanglement(norm_tensor_latent_1, tensor_system_dims // rep_dims, rep_dims)
-            entanglement_loss = ent.compute(normalize=True).get("entanglement_a").mean()
+            if self.entanglement_type == 'tripartite' and self.group in ['C4xC4', 'D1xD1']:
+                # Interpret the tensor block as outer x G1 x G2.
+                if self.group == 'C4xC4':
+                    tri_dim_a, tri_dim_b, tri_dim_c = 4, 4, 4   # 64 = 4 * 4 * 4
+                else:  # 'D1xD1'
+                    tri_dim_a, tri_dim_b, tri_dim_c = 16, 2, 2  # 64 = 16 * 2 * 2
+                tensor_system_dims = tri_dim_a * tri_dim_b * tri_dim_c
+
+                tensor_latent_1 = latent1_tensor[:, :tensor_system_dims]
+                latent_1_norm = torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True).clamp_min(1e-12)
+                norm_tensor_latent_1 = tensor_latent_1 / latent_1_norm
+                tri_ent = TripartiteEntanglement(norm_tensor_latent_1, tri_dim_a, tri_dim_b, tri_dim_c)
+                tri_result = tri_ent.compute(normalize=True)
+                entanglement_loss = (
+                    tri_result.get("entanglement_a_bc").mean()
+                    + tri_result.get("entanglement_b_ac").mean()
+                    + tri_result.get("entanglement_c_ab").mean()
+                )
+            elif self.entanglement_type == 'tripartite':
+                raise NotImplementedError("Tripartite entanglement loss is currently only implemented for the DDMNIST C4xC4 and D1xD1 datasets.")
+            else:
+                tensor_latent_1 = latent1_tensor[:, :tensor_system_dims]
+                latent_1_norm = torch.linalg.vector_norm(tensor_latent_1, dim=1, keepdim=True).clamp_min(1e-12)
+                norm_tensor_latent_1 = tensor_latent_1 / latent_1_norm
+                ent = Entanglement(norm_tensor_latent_1, tensor_system_dims // rep_dims, rep_dims)
+                entanglement_loss = ent.compute(normalize=True).get("entanglement_a").mean()
         else:
             entanglement_loss = 0
 

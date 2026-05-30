@@ -7,6 +7,7 @@ from models.GxGRegularFunctorModel import GxGRegularFunctor
 from datasets.C4xC4DDMNIST_dataset import C4xC4DDMNISTDataModule
 from datasets.D4xD4DDMNIST_dataset import D4xD4DDMNISTDataModule
 from datasets.D1xD1DDMNIST_dataset import D1xD1DDMNISTDataModule
+from utils.entanglement import TripartiteEntanglement
 
 DATASET_TO_DATAMODULE = {
     'ddmnist_c4': C4xC4DDMNISTDataModule,
@@ -14,6 +15,12 @@ DATASET_TO_DATAMODULE = {
     'ddmnist_d1': D1xD1DDMNISTDataModule,
 }
 BATCH_SIZE = 256
+
+# (dim_a, dim_b, dim_c) tripartite split per dataset: outer x G1 x G2.
+TRIPARTITE_DIMS = {
+    'ddmnist_c4': (4, 4, 4),    # 64 = 4 * 4 * 4
+    'ddmnist_d1': (16, 2, 2),   # 64 = 16 * 2 * 2
+}
 
 
 def seed_all():
@@ -23,16 +30,39 @@ def seed_all():
 
 
 @torch.no_grad()
-def test_accuracy(model, dataloader, device):
+def test_accuracy_and_entanglement(model, dataloader, device, tri_dims):
+    """Return (accuracy, ent_avg) where ent_avg is the mean across the three
+    tripartite cuts (A:BC, B:AC, C:AB), computed per-sample on the full
+    concatenated latent set and then averaged across samples. This matches the
+    aggregation in compute_entanglement.py exactly."""
     model.eval()
     correct = total = 0
+    all_latents = []
     for (x1, y1), *_ in dataloader:
-        out = model(x1.to(device))
-        logits = out[0] if isinstance(out, tuple) else out
+        x1 = x1.to(device)
+        logits, latents = model.model(x1, [12])
+        latent = torch.cat(latents, dim=-1).cpu()
+        all_latents.append(latent)
+
         pred = torch.argmax(logits, dim=1).cpu()
         correct += (pred == y1).sum().item()
         total += y1.numel()
-    return correct / total
+
+    acc = correct / total
+
+    latents_full = torch.cat(all_latents, dim=0)
+    dim_a, dim_b, dim_c = tri_dims
+    tensor_dims = dim_a * dim_b * dim_c
+    tensor_latents = latents_full[:, :tensor_dims]
+    norm = torch.linalg.vector_norm(tensor_latents, dim=1, keepdim=True)
+    norm_tensor_latents = tensor_latents / norm
+    tri = TripartiteEntanglement(norm_tensor_latents, dim_a, dim_b, dim_c).compute(normalize=True)
+    ent_avg = (
+        tri["entanglement_a_bc"].mean().item()
+        + tri["entanglement_b_ac"].mean().item()
+        + tri["entanglement_c_ab"].mean().item()
+    ) / 3.0
+    return acc, ent_avg
 
 
 if __name__ == "__main__":
@@ -42,6 +72,13 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='ddmnist_c4', choices=DATASET_TO_DATAMODULE.keys(),
                         help='Dataset to use for extracting test accuracy.')
     args = parser.parse_args()
+
+    if args.dataset not in TRIPARTITE_DIMS:
+        raise NotImplementedError(
+            f"Tripartite entanglement (used for the ent_avg column) is not configured "
+            f"for dataset {args.dataset}. Supported: {sorted(TRIPARTITE_DIMS)}"
+        )
+    tri_dims = TRIPARTITE_DIMS[args.dataset]
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -55,15 +92,27 @@ if __name__ == "__main__":
     plain_loader = DataLoader(dm_plain.test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
     aug_loader = DataLoader(dm_aug.test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-    header = f"{'lambda_t':>10} {'lambda_e':>10} {'test_acc':>10} {'aug_test_acc':>14}"
+    header = (
+        f"{'lambda_t':>10} {'lambda_e':>10} "
+        f"{'test_acc':>10} {'aug_test_acc':>14} "
+        f"{'ent_avg_test':>14} {'ent_avg_aug':>14}"
+    )
     print(header)
     print("-" * len(header))
     for path in args.checkpoint_paths:
         seed_all()
         model = GxGRegularFunctor.load_from_checkpoint(path, map_location=device).to(device)
-        plain_acc = test_accuracy(model, plain_loader, device)
+        model.model.get_latent = True
+
         seed_all()
-        aug_acc = test_accuracy(model, aug_loader, device)
+        plain_acc, plain_ent = test_accuracy_and_entanglement(model, plain_loader, device, tri_dims)
+        seed_all()
+        aug_acc, aug_ent = test_accuracy_and_entanglement(model, aug_loader, device, tri_dims)
+
         lt = model.hparams['lambda_t']
         le = model.hparams['lambda_e']
-        print(f"{lt:>10} {le:>10} {plain_acc:>10.4f} {aug_acc:>14.4f}")
+        print(
+            f"{lt:>10} {le:>10} "
+            f"{plain_acc:>10.4f} {aug_acc:>14.4f} "
+            f"{plain_ent:>14.4f} {aug_ent:>14.4f}"
+        )

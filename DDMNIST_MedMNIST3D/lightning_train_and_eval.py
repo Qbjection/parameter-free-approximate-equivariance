@@ -116,7 +116,8 @@ def get_model_from_args(args, milestones=None, log_dir=None, n_channels=None, n_
                           lr=args.lr, gamma=args.gamma)
     elif args.model == 'GxGregularfunctor':
         return GxGRegularFunctor(lr=args.lr, gamma=args.gamma, milestones=milestones, output_root=log_dir, device=args.device, group=args.group,
-                                   lambda_c=args.lambda_c, lambda_t=args.lambda_t, lambda_e=args.lambda_e, equivariant_layer_id=args.equivariant_layer_id, data_flag=args.data_flag,)
+                                   lambda_c=args.lambda_c, lambda_t=args.lambda_t, lambda_e=args.lambda_e, equivariant_layer_id=args.equivariant_layer_id, data_flag=args.data_flag,
+                                   entanglement_type=args.entanglement_type)
     elif args.model == 'MedMNISTGxGregularfunctor':
         return MedMNISTGxGRegularFunctor(lr=args.lr, gamma=args.gamma, milestones=milestones, output_root=log_dir, device=args.device, group=args.group,
                                    lambda_c=args.lambda_c, lambda_t=args.lambda_t, equivariant_layer_id=args.equivariant_layer_id, data_flag=args.data_flag,)
@@ -146,6 +147,7 @@ def get_args():
     parser.add_argument('--lambda_c', type=float, default=1)
     parser.add_argument('--lambda_t', type=float, default=0.5)
     parser.add_argument('--lambda_e', type=float, default=0.0, help='Weight for entanglement loss')
+    parser.add_argument('--entanglement_type', type=str, default='bipartite', help='Entanglement type: bipartite/tripartite')
     parser.add_argument('--lambda_W', type=float, default=0.1)
     parser.add_argument('--latent_transform_process', type=str, default='from_generators')
     parser.add_argument('--W_init', type=str, default='orthogonal')

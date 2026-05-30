@@ -13,7 +13,7 @@ from utils.entanglement import Entanglement, get_average_entanglement, get_norma
 
 def mean_std_str(values):
     arr = np.array(values)
-    return f"{arr.mean():.4f} ± {arr.std():.4f}"
+    return f"{arr.mean():.4f} ± {arr.std(ddof=1):.4f}"
 
 DATASET_TO_DATAMODULE = {
     'ddmnist_c4': C4xC4DDMNISTDataModule,

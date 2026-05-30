@@ -212,7 +212,7 @@ class GxGRegularFunctor(pl.LightningModule):
                     tri_result.get("entanglement_a_bc").mean()
                     + tri_result.get("entanglement_b_ac").mean()
                     + tri_result.get("entanglement_c_ab").mean()
-                )
+                ) / 3.0 # normalize for consistency
             elif self.entanglement_type == 'tripartite':
                 raise NotImplementedError("Tripartite entanglement loss is currently only implemented for the DDMNIST C4xC4 and D1xD1 datasets.")
             else:

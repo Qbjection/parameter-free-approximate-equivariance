@@ -74,6 +74,7 @@ if __name__ == "__main__":
     DataModuleClass = DATASET_TO_DATAMODULE[args.dataset]
     dm_plain = DataModuleClass(args.batch_size, augment_test=False)
     dm_plain.setup()
+    torch.manual_seed(0); np.random.seed(0); random.seed(0)
     dm_aug = DataModuleClass(args.batch_size, augment_test=True)
     dm_aug.setup()
 

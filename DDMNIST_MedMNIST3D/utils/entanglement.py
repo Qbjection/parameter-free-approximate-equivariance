@@ -129,7 +129,7 @@ class Entanglement():
         except torch.linalg.LinAlgError:
             # eigvalsh can fail to converge on rank-deficient PSD matrices,
             # add a tiny diagonal jitter and retry: small effect on entanglement vals
-            jitter = 1e-8 * torch.eye(rho.shape[-1], dtype=rho.dtype, device=rho.device)
+            jitter = 1e-6 * torch.eye(rho.shape[-1], dtype=rho.dtype, device=rho.device)
             eigenvalues = torch.linalg.eigvalsh(rho + jitter)
 
         # Clamp small/negative eigenvalues to avoid log(0) or log(negative)

@@ -124,8 +124,14 @@ class Entanglement():
         """
         #TODO torch.linalg.eigvalsh NOT IMPLEMENTED FOR MPS BACKEND — RAISE ISSUE
         # eigenvalues shape: (batch_size, dim)
-        eigenvalues = torch.linalg.eigvalsh(rho)
-        
+        try:
+            eigenvalues = torch.linalg.eigvalsh(rho)
+        except torch.linalg.LinAlgError:
+            # eigvalsh can fail to converge on rank-deficient PSD matrices,
+            # add a tiny diagonal jitter and retry: small effect on entanglement vals
+            jitter = 1e-8 * torch.eye(rho.shape[-1], dtype=rho.dtype, device=rho.device)
+            eigenvalues = torch.linalg.eigvalsh(rho + jitter)
+
         # Clamp small/negative eigenvalues to avoid log(0) or log(negative)
         # Use a small positive value instead of filtering, to keep batch dimension consistent
         #this is OK, since mutliplying 1e-10 by log2(1e-10) is around -1e-10

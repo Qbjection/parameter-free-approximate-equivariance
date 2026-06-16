@@ -130,6 +130,7 @@ def get_args():
     parser.add_argument('--dataset', type=str, default='z2')
     parser.add_argument('--data_flag', type=str, default=None)
     parser.add_argument('--output_root', type=str, default='tb_logs', help='Where to save logs')
+    parser.add_argument('--base_no_gshift', type=bool, default=True, help='Whether to use the gshift in the base model (on by default in the git branch ablate_gshit_baseline)')
     parser.add_argument('--size', type=int, default=28)
     parser.add_argument('--download', action='store_true')
     parser.add_argument('--resize', action='store_true')
@@ -155,7 +156,7 @@ def get_args():
     parser.add_argument('--fix_rep', action='store_true')
     parser.add_argument('--algebra_loss_criterion', type=str, default='mse')
     parser.add_argument('--log_inputs', action='store_true', help='Log inputs to TensorBoard')
-    parser.add_argument('--equivariant_layer_id', type=int, nargs="+", default=[9], help='Layer ID of the equivariant layer in the model')
+    parser.add_argument('--equivariant_layer_id', type=int, nargs="+", default=[12], help='Layer ID of the equivariant layer in the model')
     parser.add_argument('--group', type=str, required=True, help='Group for the model. Can be C4xC4 or D4xD4')
 
     parser.add_argument('--num_epochs', type=int, default=150) 
@@ -221,7 +222,7 @@ def run(args):
     milestones = [int(0.5 * args.num_epochs), int(0.75 * args.num_epochs)]
     
     ###################################### logger and checkpoints #####################################
-    model_name = f'{args.run}_{args.model_flag}_lambdaT_{args.lambda_t}_lambdaE_{args.lambda_e}_Etype_{args.entanglement_type}_lambdaW_{args.lambda_W}_lr_{args.lr}_numepochs_{args.num_epochs}'
+    model_name = f'{args.run}_{args.model_flag}_lambdaT_{args.lambda_t}{'_basenogshift' if args.base_no_gshift else ""}_lambdaE_{args.lambda_e}_Etype_{args.entanglement_type}_lambdaW_{args.lambda_W}_lr_{args.lr}_numepochs_{args.num_epochs}'
     logger = TensorBoardLogger(
         save_dir=args.output_root,
         name=f'{args.data_flag}/{args.dataset}/{model_name}'

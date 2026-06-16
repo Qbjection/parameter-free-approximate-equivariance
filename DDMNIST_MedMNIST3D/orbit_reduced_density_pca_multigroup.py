@@ -159,12 +159,96 @@ def tripartite_marginals(states: torch.Tensor, dim_a: int, dim_b: int, dim_c: in
     return rhos, entropy
 
 
+def report_subsystem_vectors(rhos, names, dims, var_codes, cfg, variation, role,
+                             decimals=3, eig_spectrum=False, emb_norm=None, leftover=None):
+    """Print the dominant learned vector of each subsystem and its alignment with all-ones.
+
+    The all-ones direction is the unique G-invariant (trivial-irrep) direction of a regular
+    representation: every permutation matrix fixes it, so a subsystem that collapses onto it
+    satisfies its equivariance constraint for free. For each subsystem reduced density matrix
+    rho (n, d, d) we take the top eigenvector as the subsystem's dominant pure direction
+    (its own magnitude is unit / gauge-free). We report, across the sweep:
+        embnorm: the L2 magnitude of the 64-dim embedding block this sample was built from
+                 (same across subsystems: individual factor magnitudes are NOT separable -- a
+                  product state u(x)v has a gauge u->c*u, v->(1/c)*v, so only ||u||*||v||=||psi||
+                  is defined). Pass emb_norm=None to omit the column.
+        topeig : the top eigenvalue (purity; ~1 => the marginal is ~pure / product-like)
+        align  : |<top_vec, 1/sqrt(d)>| in [0, 1]  (1 => collapsed to the all-ones direction)
+        leftover: the raw, un-normalized latent dims beyond the 64-dim block (e.g. 66-64=2),
+                 which the model leaves under identity in W_full. Same across subsystems; pass
+                 leftover=None (or a width-0 array) to omit the column.
+    plus a per-subsystem summary (mean alignment, and a consensus 'drift' = how much the
+    direction moves across the sweep).
+    """
+    leftover = np.asarray(leftover) if leftover is not None else None
+    has_leftover = leftover is not None and leftover.ndim == 2 and leftover.shape[1] > 0
+    np.set_printoptions(precision=decimals, suppress=True)
+    dim_by_name = dict(zip(names, dims))
+    # row labels: symmetry -> group-element names; digit -> the swept digit class
+    if variation == 'symmetry':
+        row_labels = [cfg['sym_labels'][int(c)] for c in var_codes]
+    else:
+        row_labels = [str(int(c)) for c in var_codes]
+    lbl_w = max(4, *(len(s) for s in row_labels))
+
+    print("\n=== Subsystem learned vectors (alignment with the all-ones / trivial-irrep direction) ===")
+    print("align = |<top eigvec, 1/sqrt(d)>| in [0,1];  align~1 AND topeig~1 => collapsed to all-ones "
+          "(trivial equivariance)")
+    if emb_norm is not None:
+        emb_norm = np.asarray(emb_norm)
+        print(f"embedding magnitude ||64-dim block||: mean {emb_norm.mean():.4f} "
+              f"(min {emb_norm.min():.4f}, max {emb_norm.max():.4f}) -- shown per-row below; "
+              f"individual factor magnitudes are not separable (tensor-product gauge).")
+
+    out = {}  # name -> dict(topvec, topeig, align) for optional NPZ stashing
+    for name in names:
+        d = int(dim_by_name[name])
+        ones = np.ones(d) / np.sqrt(d)
+        rho = rhos[name]                       # (n, d, d), real symmetric (PSD)
+        evals, evecs = np.linalg.eigh(rho)     # ascending; evecs[:, :, k] is k-th eigvec
+        top_eval = evals[:, -1]                # (n,)
+        top_vec = evecs[:, :, -1]              # (n, d), unit norm
+        # canonical sign: make the largest-|component| positive so rows are comparable
+        lead = np.argmax(np.abs(top_vec), axis=1)
+        sign = np.sign(top_vec[np.arange(top_vec.shape[0]), lead])
+        sign[sign == 0] = 1.0
+        top_vec = top_vec * sign[:, None]
+        align = np.abs(top_vec @ ones)         # (n,) in [0, 1]
+
+        print(f"\n[{name}]  ({role[name]})   d={d}   ones-ref = 1/sqrt({d}) = {1.0/np.sqrt(d):.4f}")
+        emb_hdr = f"{'embnorm':>9}  " if emb_norm is not None else ""
+        lo_hdr = "   leftover(raw)" if has_leftover else ""
+        print(f"  {'code':<{lbl_w}}  {emb_hdr}topeig   align   "
+              f"top-eigenvector (unit direction, canonical sign){lo_hdr}")
+        for i, rl in enumerate(row_labels):
+            emb_cell = f"{emb_norm[i]:>9.4f}  " if emb_norm is not None else ""
+            lo_cell = f"   {leftover[i]}" if has_leftover else ""
+            print(f"  {rl:<{lbl_w}}  {emb_cell}{top_eval[i]:.4f}  {align[i]:.4f}  {top_vec[i]}{lo_cell}")
+            if eig_spectrum:
+                print(f"  {'':<{lbl_w}}  eigenvalues: {evals[i][::-1]}")
+
+        # consensus direction across the sweep (top singular vector of the stacked unit vectors),
+        # drift = 1 - mean |cos(v_i, consensus)|: ~0 for a fixed subsystem, larger when it transforms
+        _, _, Vt = np.linalg.svd(top_vec, full_matrices=False)
+        consensus = Vt[0]
+        drift = 1.0 - float(np.mean(np.abs(top_vec @ consensus)))
+        verdict = ("COLLAPSED to all-ones (trivial equivariance)"
+                   if align.mean() > 0.9 else "varying / not collapsed")
+        print(f"  summary: mean align = {align.mean():.4f} | mean topeig = {top_eval.mean():.4f} "
+              f"| drift = {drift:.4f}  ->  {verdict}")
+        out[name] = dict(topvec=top_vec, topeig=top_eval, align=align)
+
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--ckpt', type=str, required=True, help='Path to the checkpoint (.ckpt).')
-    parser.add_argument('--out_prefix', type=str, required=True,
-                        help='Output path prefix; writes <prefix>.csv and <prefix>.npz')
+    parser.add_argument('--out_prefix', type=str, default=None,
+                        help='Output path prefix; writes <prefix>.csv and <prefix>.npz. '
+                             'If omitted, defaults to '
+                             'results/<group>/T<lambda_t>_E<lambda_e>_<digit1><digit2>')
     parser.add_argument('--group', type=str, default=None, choices=list(GROUP_CONFIG.keys()),
                         help="Group / decomposition. If omitted, taken from the checkpoint's "
                              "hparams.group. Must match the training group.")
@@ -179,16 +263,28 @@ def main():
     parser.add_argument('--layer_id', type=int, default=12, help='DDMNISTCNN layer to extract latents from.')
     parser.add_argument('--seed', type=int, default=0, help='Seed; selects the random base pair.')
     parser.add_argument('--base_idx', type=int, default=None, help='Override the random base-pair index.')
+    parser.add_argument('--digit1', type=int, default=None, choices=range(10), metavar='[0-9]',
+                        help="Desired digit-1 class (0-9) for the base pair. If omitted, taken from "
+                             "the random / --base_idx pair. Note: if you sweep digit-1 with "
+                             "--variation digit, its base class is overwritten by the class sweep.")
+    parser.add_argument('--digit2', type=int, default=None, choices=range(10), metavar='[0-9]',
+                        help="Desired digit-2 class (0-9) for the base pair. If omitted, taken from "
+                             "the random / --base_idx pair. Note: if you sweep digit-2 with "
+                             "--variation digit, its base class is overwritten by the class sweep.")
     parser.add_argument('--n_pcs_csv', type=int, default=3, help='Number of PCs to write to the CSV.')
+    parser.add_argument('--print_vectors', action='store_true',
+                        help="Print each subsystem's dominant learned vector and its alignment with "
+                             "the all-ones (trivial-irrep) direction across the sweep.")
+    parser.add_argument('--eig_spectrum', action='store_true',
+                        help="With --print_vectors, also print the full eigenvalue spectrum of each "
+                             "subsystem's reduced density matrix per swept sample.")
+    parser.add_argument('--vec_decimals', type=int, default=3,
+                        help='Decimal places for printed eigenvectors (with --print_vectors).')
     parser.add_argument('--gpu_id', type=int, default=0)
     args = parser.parse_args()
 
     pl.seed_everything(args.seed, workers=True)
     device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
-
-    out_dir = os.path.dirname(args.out_prefix)
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
 
     # ---- model ----
     model = GxGRegularFunctor.load_from_checkpoint(args.ckpt, map_location=device)
@@ -212,7 +308,24 @@ def main():
     dm.setup(stage='test')
     base = dm.test_dataset.data  # DDMNIST: raw [1,28,28] digits + label
 
-    idx = args.base_idx if args.base_idx is not None else random.randrange(len(base.labels))
+    if args.base_idx is not None:
+        if args.digit1 is not None or args.digit2 is not None:
+            print("Note: --base_idx given; ignoring --digit1/--digit2.")
+        idx = args.base_idx
+    elif args.digit1 is not None or args.digit2 is not None:
+        # pick a random base pair whose digit-1 / digit-2 classes match the request
+        tens, units = base.labels // 10, base.labels % 10
+        mask = torch.ones(len(base.labels), dtype=torch.bool)
+        if args.digit1 is not None:
+            mask &= (tens == args.digit1)
+        if args.digit2 is not None:
+            mask &= (units == args.digit2)
+        cand = mask.nonzero(as_tuple=True)[0].tolist()
+        if not cand:
+            raise ValueError(f"No base pair with digit-1={args.digit1}, digit-2={args.digit2}.")
+        idx = random.choice(cand)
+    else:
+        idx = random.randrange(len(base.labels))
     img1, img2, y = base[idx]  # img1, img2: [1,28,28]; img1 = the FIXED digit-1
     label = int(y)
     sweep_digit = args.sweep_digit
@@ -220,6 +333,16 @@ def main():
     print(f"Group {group} ({cfg['decomposition']}), base pair index {idx}, label {label} "
           f"(digit-1={label // 10}, digit-2={label % 10})")
     print(f"Variation mode: {args.variation}; sweeping digit-{sweep_digit} (digit-{fixed_digit} fixed)")
+
+    # ---- resolve the output prefix (default: results/<group>/T<lambda_t>_E<lambda_e>_<d1><d2>) ----
+    if args.out_prefix is not None:
+        out_prefix = args.out_prefix
+    else:
+        lt, le = model.hparams.get('lambda_t'), model.hparams.get('lambda_e')
+        out_prefix = os.path.join('results', group, f"{'digit' if args.variation == 'digit' else 'orbit'}_T{lt}_E{le}_{'v' if args.sweep_digit == 1 else ''}{label // 10}{'v' if args.sweep_digit == 2 else ''}{label % 10}")
+    out_dir = os.path.dirname(out_prefix)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
 
     # ---- build the swept-digit samples (the other digit is held fixed) ----
     # The latent factor structure is always outer (x) digit1 (x) digit2; sweep_digit only
@@ -262,8 +385,11 @@ def main():
     pred_unit = pred % 10                  # digit-2 class
 
     # ---- states + reduced density matrices ----
-    states = Z[:, :d].float()
-    states = states / states.norm(dim=1, keepdim=True).clamp_min(1e-12)  # unit vectors
+    block = Z[:, :d].float()
+    emb_norm = block.norm(dim=1).numpy()                                  # (n,) magnitude of the
+    full_norm = Z.float().norm(dim=1).numpy()                            # 64-dim block / full latent
+    leftover = Z[:, d:].float().numpy()                                  # (n, total-64) raw padding
+    states = block / block.norm(dim=1, keepdim=True).clamp_min(1e-12)     # unit vectors
 
     if cfg['decomposition'] == 'bipartite':
         rhos, entropy = bipartite_marginals(states, dims[0], dims[1])
@@ -299,13 +425,37 @@ def main():
         print(f"spread ratio  rho_{swept_name} / rho_outer  = "
               f"{tv[swept_name] / max(tv['outer'], 1e-300):.1f}")
 
+    # ---- average entanglement of the n encodings plotted in the PCA ----
+    # `entropy` holds the per-sample normalized von Neumann entropy in [0,1] for each cut
+    # (bipartite: the single digit1:digit2 cut; tripartite: the three isolated-subsystem cuts).
+    entropy_cut_label = {
+        'entropy': f'digit1 : digit2',
+        'entropy_a_bc': 'outer : (digit1 digit2)',
+        'entropy_b_ac': 'digit1 : (outer digit2)',
+        'entropy_c_ab': 'digit2 : (outer digit1)',
+    }
+    print(f"\naverage entanglement over the {n} plotted encodings (normalized vN entropy, [0,1]):")
+    for key, vals in entropy.items():
+        vals = np.asarray(vals)
+        cut_label = entropy_cut_label.get(key, key)
+        print(f"    {cut_label:<24} mean = {vals.mean():.4f}  (std {vals.std():.4f}, "
+              f"min {vals.min():.4f}, max {vals.max():.4f})")
+
+    # ---- optional: dominant subsystem vectors + all-ones alignment ----
+    subsystem_vectors = None
+    if args.print_vectors:
+        subsystem_vectors = report_subsystem_vectors(
+            rhos, names, dims, var_codes, cfg, args.variation, role,
+            decimals=args.vec_decimals, eig_spectrum=args.eig_spectrum, emb_norm=emb_norm,
+            leftover=leftover)
+
     # ---- entropy column for the CSV ----
     # bipartite: the single normalized vN entropy; tripartite: the digit-2 cut (digit2 : rest).
     csv_entropy = entropy['entropy'] if cfg['decomposition'] == 'bipartite' else entropy['entropy_c_ab']
 
     # ---- CSV ----
     n_pcs = args.n_pcs_csv
-    csv_path = f"{args.out_prefix}.csv"
+    csv_path = f"{out_prefix}.csv"
 
     def pc_row(coords, i):
         vals = coords[i].tolist()
@@ -325,7 +475,7 @@ def main():
     print(f"Wrote {csv_path}")
 
     # ---- NPZ ----
-    npz_path = f"{args.out_prefix}.npz"
+    npz_path = f"{out_prefix}.npz"
     payload = dict(
         group=group,
         decomposition=cfg['decomposition'],
@@ -339,11 +489,18 @@ def main():
         images=X.cpu().numpy(),
         latents=Z.numpy(),
         states=states.numpy(),
+        emb_norm=emb_norm,                 # (n,) magnitude of the 64-dim embedding block
+        full_norm=full_norm,               # (n,) magnitude of the full latent vector
+        leftover=leftover,                 # (n, total-64) raw padding dims beyond the block
         pred_class=pred,
         pred_tens=pred_tens,
         pred_unit=pred_unit,
     )
     payload.update({f'entropy_{k}' if not k.startswith('entropy') else k: v
+                    for k, v in entropy.items()})
+    # average entanglement over the n plotted encodings, per cut
+    payload.update({(f'avg_entropy_{k}' if not k.startswith('entropy')
+                     else f'avg_{k}'): float(np.asarray(v).mean())
                     for k, v in entropy.items()})
     for name in names:
         p = pca[name]
@@ -353,6 +510,11 @@ def main():
         payload[f'pca_{name}_absolute_var'] = p['absvar']
         payload[f'pca_{name}_total_var'] = p['tvar']
         payload[f'pca_{name}_components'] = p['comp']
+    if subsystem_vectors is not None:
+        for name, v in subsystem_vectors.items():
+            payload[f'topvec_{name}'] = v['topvec']   # (n, d_name) dominant unit direction
+            payload[f'topeig_{name}'] = v['topeig']   # (n,) top eigenvalue (purity)
+            payload[f'align_{name}'] = v['align']     # (n,) |<topvec, all-ones>|
     np.savez(npz_path, **payload)
     print(f"Wrote {npz_path}")
 
